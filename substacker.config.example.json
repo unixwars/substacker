@@ -1,0 +1,8 @@
+{
+  "feedUrl": "https://example.substack.com/feed",
+  "feedName": "Example Newsletter",
+  "subscribeUrl": "https://example.substack.com/subscribe",
+  "actions": [],
+  "utmSource": "substacker",
+  "hidden": []
+}

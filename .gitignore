@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# The `content` branch is checked out here by the publish workflow and by
+# local runs. It is a separate branch; never commit it to `main`.
+/content/
+# The assembled Pages site (shell plus content)
+/site/
+
+# Tests and coverage
+coverage/
+playwright-report/
+test-results/
+
+# Cloudflare Worker (relay) local state
+.wrangler/
+.dev.vars
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Editors, OS, tools
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.claude/settings.local.json
+*.log
+
+# Local, publication-specific settings (template: substacker.config.example.json)
+substacker.config.local.json

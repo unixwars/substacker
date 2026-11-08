@@ -1,0 +1,29 @@
+{
+  "name": "substacker",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  // Named volumes keep the assistant's configuration, skills and the GitHub
+  // token across rebuilds. They are optional: without them everything still
+  // works, you just sign in again after a rebuild.
+  "mounts": [
+    "source=claude-code-config,target=/root/.claude,type=volume",
+    "source=claude-code-agents,target=/root/.agents,type=volume",
+    "source=claude-code-secrets,target=/root/.secrets,type=volume"
+  ],
+  // The token link is made only when a token has been stored in the volume.
+  // Dependencies and the browser are installed once the project has a lockfile.
+  "postCreateCommand": "([ ! -e /root/.secrets/gh_token ] || ln -sf /root/.secrets/gh_token /root/.gh_token) && apt-get update && apt-get install -y openssh-client && mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && npm install -g @anthropic-ai/claude-code && if [ -f package-lock.json ]; then npm ci && npx playwright install --with-deps chromium; fi",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  }
+}
