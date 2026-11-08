@@ -77,7 +77,7 @@ There is no database or container here, so "integration" means: a fixture feed s
 
 To see what a run would do without pushing anything, run `npm run build` then `npm run publish:dry-run`: it calls the same functions (`scripts/publish.mjs`) against the fixture feed, served locally, and lists the backup files it would commit (none on a second run with the same `--workdir`) and the files it would deploy. `test:integration` covers it.
 
-A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which packs `substacker-core` and attaches the tarball to a GitHub Release.
+A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which runs the typecheck, lint, unit and integration tests (the integration run includes the pack-and-import check), then packs `substacker-core` and attaches the tarball to a GitHub Release.
 
 ## Using it for your own publication
 

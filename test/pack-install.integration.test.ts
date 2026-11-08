@@ -38,7 +38,10 @@ it("imports every subpath of the installed tarball", () => {
   };
   const subpaths = Object.keys(pkg.exports);
   expect(subpaths).toContain(".");
-  for (const sub of subpaths) {
+  // react is an optional peer: only ./react needs it, so install it just before that subpath.
+  const ordered = [...subpaths.filter((s) => s !== "./react"), ...subpaths.filter((s) => s === "./react")];
+  for (const sub of ordered) {
+    if (sub === "./react") run(npm, ["install", "react@^19", "--no-audit", "--no-fund"], project);
     const spec = sub === "." ? "substacker-core" : `substacker-core/${sub.slice(2)}`;
     const out = run("node", ["--input-type=module", "-e", `const m = await import(${JSON.stringify(spec)}); console.log(Object.keys(m).length)`], project);
     expect(Number(out.trim())).toBeGreaterThan(0);

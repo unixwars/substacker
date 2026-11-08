@@ -52,13 +52,14 @@ Substack may answer HTTP 403 to requests from GitHub's runners. If a run of the 
 **Deploy it**, from a clone, with a free Cloudflare account:
 
 ```bash
+npm ci                                   # at the repository root: installs the pinned wrangler (a devDependency of apps/relay)
 cd apps/relay
 npx wrangler login
-npx wrangler deploy --var ALLOWED_HOST:<publication>.substack.com
+npm run deploy -- --var ALLOWED_HOST:<publication>.substack.com
 npx wrangler secret put RELAY_SECRET     # paste a long random value, e.g. from: openssl rand -base64 32
 ```
 
-`wrangler deploy` prints the Worker's address (`https://substacker-relay.<your-subdomain>.workers.dev`). `wrangler.toml` holds only a placeholder `ALLOWED_HOST` and no account id or secret; pass your own host with `--var` on every deploy, or edit it locally and do not commit it.
+`wrangler deploy` prints the Worker's address (`https://substacker-relay.<your-subdomain>.workers.dev`). `wrangler.toml` holds only a placeholder `ALLOWED_HOST` and no account id or secret; wrangler is pinned in `apps/relay/package.json`, so `npx wrangler` runs that copy and never downloads one. Pass your own host with `--var` on every deploy, or edit it locally and do not commit it.
 
 **Tell the scraper about it:**
 
