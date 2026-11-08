@@ -15,6 +15,9 @@ export default defineConfig({
     ],
   },
   test: {
+    // Files run one at a time: several rebuild packages/core/dist (a beforeAll
+    // and `npm pack`'s prepack), which races when they overlap.
+    fileParallelism: false,
     include: ["{packages,apps}/*/src/**/*.integration.test.ts", "test/**/*.integration.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**"],
     testTimeout: 180_000,
