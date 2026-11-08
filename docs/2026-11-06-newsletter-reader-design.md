@@ -29,7 +29,7 @@ One repository, `substacker` (public, a monorepo with npm workspaces), with two 
 | `packages/core` | The contract and the pure logic, used by everything else. Subpaths: `.` (no DOM, no React), `./dom` (the render-time sanitizer), `./react` (headless hooks). The only package that is distributed. |
 | `packages/scraper` | Reads a feed and writes the content files. A CLI, `substacker-scrape`, run from the checkout. |
 | `apps/shell` | A static PWA reader (Vite and React) with its own service worker: the offline product. |
-| `apps/relay` | A Cloudflare Worker that only relays the feed fetch. Built only if the probe says a relay is needed. |
+| `apps/relay` | A Cloudflare Worker that only relays the feed fetch. Built, and deployed only by a fork whose runners are refused by Substack. |
 
 **`content`** is an orphan branch holding only the generated files (section 1). Daily commits land there, so the history of `main` is never buried. It is the only copy of posts older than the feed window, so it is protected: a repository ruleset blocks force pushes and deletion, and nothing in the project rewrites its history.
 

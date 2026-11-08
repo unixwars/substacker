@@ -5,7 +5,7 @@
 
 Back up a Substack publication as static files, and read, search and browse it offline. A scheduled job reads the publication's RSS feed and commits each post's raw feed item and its images to a protected `content` branch; a static PWA reader and a small embeddable core library are derived from that backup.
 
-**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. Not yet built: the publish workflow, the optional relay, the first release, and the live checks listed at the end of the plan. The design and the implementation plan are in [docs/](docs/).
+**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The relay exists too (deploy it only if Substack refuses GitHub's runners). Not yet built: the publish workflow, the first release, and the live checks listed at the end of the plan. The design and the implementation plan are in [docs/](docs/).
 
 ## What it is
 
@@ -22,7 +22,7 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 | `packages/core` | The content contract and the pure logic (`substacker-core`, the only distributed package). |
 | `packages/scraper` | Reads the feed and writes the content files (`substacker-scrape`, `substacker-build`). |
 | `apps/shell` | The static PWA reader with its own service worker. |
-| `apps/relay` | A Cloudflare Worker that relays the feed fetch, only if GitHub's runners are blocked by Substack. Not built yet; it waits on the probe result. |
+| `apps/relay` | A Cloudflare Worker that relays the feed fetch, needed only if Substack refuses GitHub's runners. Deploy steps are in [docs/setup.md](docs/setup.md). |
 | `content` branch | The generated backup. Orphan branch, no force pushes. |
 
 ## Local build & development

@@ -1,0 +1,11 @@
+# Deploy with `npx wrangler deploy` (see docs/setup.md). No account id or secret is
+# stored here: log in with `wrangler login`, and set the secret with
+# `wrangler secret put RELAY_SECRET`.
+name = "substacker-relay"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+# The only host the relay fetches from. A placeholder: set your own feed host, here or
+# with `npx wrangler deploy --var ALLOWED_HOST:<publication>.substack.com`.
+ALLOWED_HOST = "example.substack.com"

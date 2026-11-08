@@ -30,7 +30,7 @@ Settings are not stored in the repository, so no publication is named in the cod
 | `actions` | Subset of `comment`, `share`. Empty by default. |
 | `utmSource` | Label for Substack's statistics. Default `substacker`. |
 | `hidden` | Slugs left out of every reader. The backup still keeps them. |
-| `relayUrl` | Optional. Only if GitHub's runners are blocked (see the probe). |
+| `relayUrl` | Optional. The address of your deployed relay (step 3a), needed if Substack refuses GitHub's runners. |
 
 **In CI:** Settings, Secrets and variables, Actions, Variables. Create `SUBSTACKER_CONFIG` whose value is your configuration as JSON, shaped like the example. A variable is not secret; anyone with access to the repository settings can read it. If you use the relay, its shared secret goes in an Actions *secret*, never in this variable.
 
@@ -41,6 +41,33 @@ Settings are not stored in the repository, so no publication is named in the cod
 - Actions start disabled on a fork: open the Actions tab and enable them.
 - Settings, Pages, Source: GitHub Actions.
 - Run the `publish` workflow once by hand. After that it runs daily and on every push to `main`.
+
+## 3a. The relay (if Substack refuses GitHub's runners)
+
+Substack may answer HTTP 403 to requests from GitHub's runners. If a run of the `publish` workflow fails with `feed fetch failed: HTTP 403` and no `relayUrl` is set, deploy the relay, a small Cloudflare Worker (`apps/relay`, free tier) that fetches the feed for the scraper. It is not needed if the runners reach the feed directly.
+
+**What it does.** It answers `GET <relayUrl>?url=<feed address>` for callers that send the header `x-relay-secret: <secret>`, compared in constant time with the Worker secret `RELAY_SECRET`. It only fetches `https` addresses on the one host in the Worker variable `ALLOWED_HOST`, refuses any redirect to another host, caps the body at 10 MB and passes the status and body through. Errors it generates itself: 401 (secret missing or wrong), 403 (another host, or a redirect to one), 405 (not GET), 400 (no or bad `url`), 502 (upstream failed, too many redirects, body too large), 500 (relay not configured). It identifies itself with `User-Agent: substacker-relay/<version>`; it does not pretend to be a browser.
+
+**Deploy it**, from a clone, with a free Cloudflare account:
+
+```bash
+cd apps/relay
+npx wrangler login
+npx wrangler deploy --var ALLOWED_HOST:<publication>.substack.com
+npx wrangler secret put RELAY_SECRET     # paste a long random value, e.g. from: openssl rand -base64 32
+```
+
+`wrangler deploy` prints the Worker's address (`https://substacker-relay.<your-subdomain>.workers.dev`). `wrangler.toml` holds only a placeholder `ALLOWED_HOST` and no account id or secret; pass your own host with `--var` on every deploy, or edit it locally and do not commit it.
+
+**Tell the scraper about it:**
+
+1. Repository, Settings, Secrets and variables, Actions, **Secrets**: create `SUBSTACKER_RELAY_SECRET` with the same value you gave `wrangler secret put`.
+2. Add `"relayUrl": "https://substacker-relay.<your-subdomain>.workers.dev"` to the `SUBSTACKER_CONFIG` repository **variable** (the address is not secret).
+3. Locally, export `SUBSTACKER_RELAY_SECRET` and put the same `relayUrl` in `substacker.config.local.json`.
+
+When `relayUrl` is set the scraper requires `SUBSTACKER_RELAY_SECRET` and fetches only the feed through the relay; images are fetched directly, since they come from several hosts.
+
+**Unverified:** whether Substack accepts requests that come from Cloudflare's network is not known until you try. After deploying, run the `publish` workflow by hand. If the feed fetch still fails with 403 (now reported without the `relayUrl` hint), the relay does not help from that network and another route is needed.
 
 ## 4. Protect the `content` branch
 
@@ -91,7 +118,7 @@ To run the scraper locally, create `substacker.config.local.json` (see step 2), 
 | Name | Kind | Used by |
 |---|---|---|
 | `SUBSTACKER_CONFIG` | Actions variable | publish workflow; the configuration JSON (step 2) |
-| `SUBSTACKER_RELAY_SECRET` | Actions secret | only if you use `relayUrl`; sent to the relay as a shared-secret header |
+| `SUBSTACKER_RELAY_SECRET` | Actions secret | only if you use `relayUrl`; sent to the relay as the `x-relay-secret` header, and the same value as the Worker's `RELAY_SECRET` |
 
 CI (`.github/workflows/ci.yml`) needs neither: its tests use fixtures and no real feed.
 
