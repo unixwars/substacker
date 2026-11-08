@@ -11,7 +11,7 @@ import { readFileSync, appendFileSync } from "node:fs";
 const lines = [];
 const out = (s = "") => { lines.push(s); console.log(s); };
 
-function feedUrlFromConfig() {
+function configFromEnv() {
   const raw = process.env.SUBSTACKER_CONFIG?.trim()
     || (() => { try { return readFileSync("substacker.config.local.json", "utf8"); } catch { return ""; } })();
   if (!raw) throw new Error("No SUBSTACKER_CONFIG and no substacker.config.local.json");
@@ -19,18 +19,17 @@ function feedUrlFromConfig() {
   try { cfg = JSON.parse(raw); } catch {
     throw new Error('SUBSTACKER_CONFIG must be JSON like {"feedUrl": "https://<name>.substack.com/feed"}, not a bare URL');
   }
-  const url = cfg.feedUrl;
-  if (typeof url !== "string") throw new Error('Configuration has no "feedUrl"');
-  return url;
+  if (typeof cfg.feedUrl !== "string") throw new Error('Configuration has no "feedUrl"');
+  return cfg;
 }
 
 // Requested test: does a browser user agent change what Substack returns to Actions?
 const PROBE_UA = "substacker-probe/0";
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
-async function get(url, label, ua = BROWSER_UA) {
+async function get(url, label, ua = BROWSER_UA, extraHeaders = {}) {
   const t0 = Date.now();
   try {
-    const res = await fetch(url, { redirect: "manual", headers: { "user-agent": ua } });
+    const res = await fetch(url, { redirect: "manual", headers: { "user-agent": ua, ...extraHeaders } });
     const buf = await res.arrayBuffer();
     const location = res.headers.get("location");
     out(`| ${label} | ${new URL(url).host} | ${res.status}${location ? ` → ${new URL(location, url).host}` : ""} | ${buf.byteLength} | ${Date.now() - t0} ms |`);
@@ -63,7 +62,9 @@ function imageUrls(xml) {
 }
 
 async function main() {
-  const feedUrl = feedUrlFromConfig();
+  const cfg = configFromEnv();
+  const feedUrl = cfg.feedUrl;
+  const relaySecret = process.env.SUBSTACKER_RELAY_SECRET;
   out(`# Substack reachability probe`);
   out();
   out(`Runner: ${process.env.GITHUB_ACTIONS ? "GitHub Actions" : "local"}, node ${process.version}, ${new Date().toISOString()}`);
@@ -73,12 +74,31 @@ async function main() {
   out("|---|---|---|---|---|");
 
   await get(feedUrl, "feed (probe UA)", PROBE_UA);
-  const feed = await get(feedUrl, "feed (browser UA)");
+  const direct = await get(feedUrl, "feed (browser UA)");
+
+  // The relay (a Cloudflare Worker): is it deployed, does it refuse what it should,
+  // and does Substack accept its requests? Our own request to it uses the probe UA.
+  let relayed = null;
+  if (cfg.relayUrl) {
+    const via = (target) => `${cfg.relayUrl}${cfg.relayUrl.includes("?") ? "&" : "?"}url=${encodeURIComponent(target)}`;
+    await get(via(feedUrl), "relay, no secret (expect 401)", PROBE_UA);
+    if (relaySecret) {
+      await get(via("https://example.com/"), "relay, other host (expect 403)", PROBE_UA, { "x-relay-secret": relaySecret });
+      relayed = await get(via(feedUrl), "relay, feed (expect 200)", PROBE_UA, { "x-relay-secret": relaySecret });
+    } else out("| relay with secret | - | skipped: SUBSTACKER_RELAY_SECRET not set | - | - |");
+  } else out("| relay | - | skipped: no relayUrl in the configuration | - | - |");
+
+  const feed = direct?.status === 200 ? direct : relayed;
   if (!feed || feed.status !== 200) {
     out();
-    out(`**Feed not reachable (status ${feed?.status ?? "error"}).** Images and the API check were skipped. If this is a 403 on GitHub Actions, the relay (plan task 11) is needed.`);
+    out(`**Feed not reachable (direct ${direct?.status ?? "error"}, via relay ${relayed?.status ?? "n/a"}).** Images and the API check were skipped.`);
     return;
   }
+  out();
+  out(`Feed taken ${feed === direct ? "directly" : "through the relay"}; images and the post API below are fetched directly from this runner.`);
+  out();
+  out("| What | Host | Status | Bytes | Time |");
+  out("|---|---|---|---|---|");
   const xml = feed.body.toString("utf8");
   const items = xml.match(/<item>/g)?.length ?? 0;
 

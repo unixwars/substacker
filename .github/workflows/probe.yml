@@ -19,3 +19,4 @@ jobs:
       - run: node probes/probe.mjs
         env:
           SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+          SUBSTACKER_RELAY_SECRET: ${{ secrets.SUBSTACKER_RELAY_SECRET }}
