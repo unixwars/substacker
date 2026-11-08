@@ -24,10 +24,13 @@ function feedUrlFromConfig() {
   return url;
 }
 
-async function get(url, label) {
+// Requested test: does a browser user agent change what Substack returns to Actions?
+const PROBE_UA = "substacker-probe/0";
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
+async function get(url, label, ua = BROWSER_UA) {
   const t0 = Date.now();
   try {
-    const res = await fetch(url, { redirect: "manual", headers: { "user-agent": "substacker-probe/0" } });
+    const res = await fetch(url, { redirect: "manual", headers: { "user-agent": ua } });
     const buf = await res.arrayBuffer();
     const location = res.headers.get("location");
     out(`| ${label} | ${new URL(url).host} | ${res.status}${location ? ` → ${new URL(location, url).host}` : ""} | ${buf.byteLength} | ${Date.now() - t0} ms |`);
@@ -64,11 +67,13 @@ async function main() {
   out(`# Substack reachability probe`);
   out();
   out(`Runner: ${process.env.GITHUB_ACTIONS ? "GitHub Actions" : "local"}, node ${process.version}, ${new Date().toISOString()}`);
+  out(`User agents: \`${PROBE_UA}\` for the first feed row; \`${BROWSER_UA}\` for everything else.`);
   out();
   out("| What | Host | Status | Bytes | Time |");
   out("|---|---|---|---|---|");
 
-  const feed = await get(feedUrl, "feed");
+  await get(feedUrl, "feed (probe UA)", PROBE_UA);
+  const feed = await get(feedUrl, "feed (browser UA)");
   if (!feed || feed.status !== 200) {
     out();
     out(`**Feed not reachable (status ${feed?.status ?? "error"}).** Images and the API check were skipped. If this is a 403 on GitHub Actions, the relay (plan task 11) is needed.`);
