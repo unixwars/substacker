@@ -13,8 +13,15 @@ export const USER_AGENT = `substacker-relay/${VERSION}`;
 export const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_HOPS = 5;
 
+/**
+ * A response the relay makes itself. `x-relay-error` marks it, so a caller can tell
+ * the relay's own refusal (say a 403) from the same status passed through from upstream.
+ */
 const text = (status: number, message: string, extra: Record<string, string> = {}) =>
-  new Response(`${message}\n`, { status, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...extra } });
+  new Response(`${message}\n`, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-relay-error": message, ...extra },
+  });
 
 /** Compare two strings without leaking, through timing, how much of them matches. */
 export async function secretsMatch(given: string, expected: string): Promise<boolean> {
@@ -105,6 +112,9 @@ export async function handle(request: Request, env: Env, fetchFn: typeof fetch =
       const headers = new Headers({ "cache-control": "no-store" });
       const type = upstream.headers.get("content-type");
       if (type) headers.set("content-type", type);
+      // So the caller can honour a rate limit (429/503) as if it had asked directly.
+      const retryAfter = upstream.headers.get("retry-after");
+      if (retryAfter) headers.set("retry-after", retryAfter);
       return new Response(body, { status: upstream.status, headers });
     }
     return text(502, "too many redirects");

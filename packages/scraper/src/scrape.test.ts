@@ -107,6 +107,12 @@ describe("scrape", () => {
     expect(String(err)).toMatch(/HTTP 403/);
     expect(String(err)).not.toMatch(/set relayUrl/);
   });
+  it("says whether the relay itself refused or the publication answered through it", async () => {
+    const run = (res: () => Response) =>
+      scrape({ ...config, relayUrl: "https://relay.example.workers.dev" }, { fetch: (async () => res()) as typeof fetch, backup: new Memory(), env: { SUBSTACKER_RELAY_SECRET: "s" } }).catch((e: unknown) => String(e));
+    expect(await run(() => new Response("x", { status: 403, headers: { "x-relay-error": "host not allowed" } }))).toMatch(/the relay refused \(HTTP 403: host not allowed\)/);
+    expect(await run(() => new Response("x", { status: 403 }))).toMatch(/via the relay, from the publication.*HTTP 403/);
+  });
   it("a network error throws", async () => {
     const fn = (async () => { throw new TypeError("offline"); }) as typeof fetch;
     await expect(scrape(config, { fetch: fn, backup: new Memory() })).rejects.toThrow(/feed fetch failed/);

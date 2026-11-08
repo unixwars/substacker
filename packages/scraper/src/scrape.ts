@@ -91,7 +91,14 @@ async function fetchFeedText(config: Config, deps: ScrapeDeps, fetcher: Fetcher)
       "feed fetch failed: HTTP 403. The publication refuses this network (GitHub's runners are often blocked). Deploy the relay and set relayUrl in the configuration; see docs/setup.md.",
     );
   }
-  if (res.status < 200 || res.status >= 300) throw httpFailure("feed fetch", res.status);
+  if (res.status < 200 || res.status >= 300) {
+    if (config.relayUrl) {
+      // The relay marks its own refusals; anything else is the publication's answer passed through.
+      const own = res.headers.get("x-relay-error");
+      throw own ? new ScrapeError(`feed fetch failed: the relay refused (HTTP ${res.status}: ${own})`) : httpFailure("feed fetch (via the relay, from the publication)", res.status);
+    }
+    throw httpFailure("feed fetch", res.status);
+  }
   return new TextDecoder().decode(res.body);
 }
 

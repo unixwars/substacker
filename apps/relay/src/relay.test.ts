@@ -101,6 +101,22 @@ describe("passing the response through", () => {
     expect(res.status).toBe(403);
     expect(await res.text()).toBe("blocked");
   });
+  it("forwards Retry-After so the caller can honour a rate limit", async () => {
+    const up = upstream(() => new Response("Too Many Requests", { status: 429, headers: { "retry-after": "30" } }));
+    const res = await handle(relayRequest(FEED), env, up.fn);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("30");
+    expect(res.headers.get("x-relay-error")).toBeNull();
+  });
+  it("marks its own refusals with x-relay-error, and only those", async () => {
+    const up = upstream(() => new Response("blocked", { status: 403 }));
+    const own = await handle(relayRequest("https://other.example.com/"), env, up.fn);
+    expect(own.status).toBe(403);
+    expect(own.headers.get("x-relay-error")).toBe("host not allowed");
+    const passed = await handle(relayRequest(FEED), env, up.fn);
+    expect(passed.status).toBe(403);
+    expect(passed.headers.get("x-relay-error")).toBeNull();
+  });
   it("identifies itself honestly and sends no secret upstream", async () => {
     const up = upstream(ok);
     await handle(relayRequest(FEED), env, up.fn);
