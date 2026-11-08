@@ -37,6 +37,25 @@ function fetcher(feed: string | (() => Response), failImages = false, image: () 
   return { fn, calls };
 }
 
+describe("scrape with an unusable feed item", () => {
+  it("does not write it to the backup and logs why", async () => {
+    const xml = feedXml([
+      { title: "Good", link: "https://example.substack.com/p/good" },
+      { title: "No date", link: "https://example.substack.com/p/nodate", pubDate: "" },
+    ]);
+    const logs: string[] = [];
+    const changes = await scrape(config, { fetch: fetcher(xml).fn, backup: new Memory(), log: (m) => logs.push(m) });
+    expect(changes.filter((c) => c.kind === "raw").map((c) => (c as { slug: string }).slug)).toEqual(["good"]);
+    expect(logs.join("\n")).toMatch(/nodate/);
+  });
+  it("still scrapes when an earlier bad raw file is already in the backup", async () => {
+    const backup = new Memory();
+    backup.raw.set("old-bad", "<item><link>https://example.substack.com/p/old-bad</link></item>");
+    const changes = await scrape(config, { fetch: fetcher(feedXml([{ title: "Good", link: "https://example.substack.com/p/good" }])).fn, backup });
+    expect(changes.filter((c) => c.kind === "raw")).toHaveLength(1);
+  });
+});
+
 describe("scrape", () => {
   it("returns raw items and images for an empty backup", async () => {
     const backup = new Memory();

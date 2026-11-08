@@ -29,12 +29,23 @@ export function build(config: Config, backupDir: string, opts: DeriveOptions = {
 
   const files: Files = new Map();
   const posts: Post[] = [];
+  const skipped: string[] = [];
   for (const slug of slugs) {
-    const post = derivePost(readFileSync(join(rawDir, `${slug}.xml`), "utf8"), present, opts);
+    // One raw file that cannot be derived (an old item, or a later policy change) must
+    // not brick the site: leave it out and say so. The backup file stays untouched.
+    let post: Post;
+    try {
+      post = derivePost(readFileSync(join(rawDir, `${slug}.xml`), "utf8"), present, opts);
+    } catch (e) {
+      skipped.push(`skipped raw/${slug}.xml: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
     posts.push(post);
     files.set(`posts/${post.slug}.json`, json(post));
   }
-  const { index, docs, warnings } = buildIndex(posts, config.hidden, config.feedName);
+  const built = buildIndex(posts, config.hidden, config.feedName);
+  const { index, docs } = built;
+  const warnings = [...skipped, ...built.warnings];
   files.set("index.json", json(index));
   files.set("search.json", json(docs));
   for (const name of imageNames) files.set(`images/${name}`, readFileSync(join(imagesDir, name)));

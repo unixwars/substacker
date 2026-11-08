@@ -1,7 +1,7 @@
 import { extensionFromContentType, imageKey, sniffImageExtension } from "substacker-core";
 import type { Config } from "./config.js";
 import { imageUrls } from "./derive.js";
-import { FeedError, parseFeed } from "./feed.js";
+import { FeedError, parseFeedDetailed } from "./feed.js";
 
 export type Change =
   | { kind: "raw"; slug: string; content: string }
@@ -103,7 +103,9 @@ export async function scrape(config: Config, deps: ScrapeDeps): Promise<Change[]
   const xml = await fetchFeedText(config, deps);
   let items;
   try {
-    items = parseFeed(xml);
+    const parsed = parseFeedDetailed(xml);
+    items = parsed.items;
+    for (const w of parsed.warnings) log(w);
   } catch (e) {
     if (e instanceof FeedError) throw new ScrapeError(e.message);
     throw e;

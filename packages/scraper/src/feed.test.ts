@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FeedError, feedTitle, hashRaw, parseFeed, parseItem, slugFromLink } from "./feed.js";
+import { FeedError, feedTitle, hashRaw, parseFeed, parseFeedDetailed, parseItem, slugFromLink } from "./feed.js";
 import { feedXml, fixtureFeed } from "./test-support/feeds.js";
 
 describe("parseFeed", () => {
@@ -49,6 +49,28 @@ describe("parseFeed", () => {
     expect(slugFromLink("https://example.substack.com/p/..")).toBeNull();
     expect(slugFromLink("https://example.substack.com/p/a/b")).toBeNull();
     expect(slugFromLink("https://example.substack.com/p/ok/")).toBe("ok");
+  });
+});
+
+describe("parseFeedDetailed", () => {
+  const badFeed = feedXml([
+    { title: "Good", link: "https://example.substack.com/p/good" },
+    { title: "No date", link: "https://example.substack.com/p/nodate", pubDate: "" },
+    { title: "Bad date", link: "https://example.substack.com/p/baddate", pubDate: "last tuesday" },
+  ]);
+  it("skips an item that build could not derive and says why", () => {
+    const { items, warnings } = parseFeedDetailed(badFeed);
+    expect(items.map((i) => i.slug)).toEqual(["good"]);
+    expect(warnings).toHaveLength(2);
+    expect(warnings.join("\n")).toMatch(/nodate/);
+    expect(warnings.join("\n")).toMatch(/baddate/);
+  });
+  it("parseFeed returns the same usable items", () => {
+    expect(parseFeed(badFeed).map((i) => i.slug)).toEqual(["good"]);
+  });
+  it("gives no warning for a clean feed or for a link that is not a post", () => {
+    expect(parseFeedDetailed(fixtureFeed).warnings).toEqual([]);
+    expect(parseFeedDetailed(feedXml([{ title: "Page", link: "https://example.substack.com/about" }])).warnings).toEqual([]);
   });
 });
 

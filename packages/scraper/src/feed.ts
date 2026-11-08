@@ -120,22 +120,43 @@ export function parseItem(raw: string): ItemFields {
   };
 }
 
+export interface ParsedFeed {
+  items: RawItem[];
+  /** One line for each item that was skipped because it cannot be turned into a post. */
+  warnings: string[];
+}
+
 /**
  * Items of a feed, each kept exactly as received. Throws FeedError for XML that
  * is not a feed, so a malformed response never overwrites good content. Items
- * whose link is not a `/p/<slug>` post are skipped.
+ * whose link is not a `/p/<slug>` post are skipped silently. An item that is a post
+ * but that `parseItem` rejects (no valid date, say) is skipped too, with a warning:
+ * it is not written to the backup, because the build could not use it.
  */
-export function parseFeed(xml: string): RawItem[] {
+export function parseFeedDetailed(xml: string): ParsedFeed {
   const valid = XMLValidator.validate(xml);
   if (valid !== true) throw new FeedError(`feed is not well-formed XML: ${valid.err.msg}`);
   if (!/<rss[\s>]/.test(xml) || !/<channel[\s>]/.test(xml)) throw new FeedError("not an RSS feed");
-  const result: RawItem[] = [];
+  const items: RawItem[] = [];
+  const warnings: string[] = [];
   for (const raw of splitItems(xml)) {
     const link = str((parser.parse(raw) as { item?: Record<string, unknown> }).item?.["link"]);
     const slug = slugFromLink(link);
-    if (slug) result.push({ slug, raw });
+    if (!slug) continue;
+    try {
+      parseItem(raw);
+    } catch (e) {
+      warnings.push(`skipped feed item ${slug}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    items.push({ slug, raw });
   }
-  return result;
+  return { items, warnings };
+}
+
+/** The usable items of a feed; see `parseFeedDetailed` for the warnings. */
+export function parseFeed(xml: string): RawItem[] {
+  return parseFeedDetailed(xml).items;
 }
 
 /** The feed's own title. */

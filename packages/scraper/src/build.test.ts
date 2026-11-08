@@ -26,6 +26,19 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 const text = (v: string | Uint8Array | undefined) => (typeof v === "string" ? v : "");
 
+describe("build with an unusable raw item", () => {
+  it("skips it with a warning instead of throwing, and builds the rest", () => {
+    seed(true);
+    writeFileSync(join(dir, "raw", "nodate.xml"), `<item><title>x</title><link>https://example.substack.com/p/nodate</link></item>`);
+    writeFileSync(join(dir, "raw", "garbage.xml"), "not xml <<<");
+    const { files, warnings } = build(config, dir);
+    expect(parseIndex(JSON.parse(text(files.get("index.json")))).posts).toHaveLength(3);
+    expect(files.has("posts/nodate.json")).toBe(false);
+    expect(warnings.join("\n")).toMatch(/nodate/);
+    expect(warnings.join("\n")).toMatch(/garbage/);
+  });
+});
+
 describe("build", () => {
   it("writes valid served files", () => {
     seed(true);
