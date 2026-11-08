@@ -52,16 +52,28 @@ jobs:
 
       # The steps live in scripts/publish.mjs, which the dry run (npm run publish:dry-run)
       # runs too, so the two cannot drift. The scraper is run by path, never through npx.
-      # Idempotent: a run with nothing new writes nothing. If Substack answers 403 from
-      # this network, the step fails and says to set up the relay.
-      - name: Scrape the feed into the backup
+      # The mode is the repository variable SUBSTACKER_SCRAPE, read by the script: `local`
+      # (the default, variable unset) skips the next two steps, because a machine you control
+      # runs `npm run scrape:local` and pushes the backup to `content`; `ci` scrapes here
+      # (idempotent: nothing new writes nothing; a 403 from this network says to set up
+      # the relay) and commits.
+      - name: Scrape the feed into the backup (ci mode only)
         run: node scripts/publish.mjs scrape --backup content
         env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
           SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
           SUBSTACKER_RELAY_SECRET: ${{ secrets.SUBSTACKER_RELAY_SECRET }}
 
-      - name: Commit the backup if it changed
+      - name: Commit the backup if it changed (ci mode only)
         run: node scripts/publish.mjs commit --backup content --push
+        env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
+
+      # In local mode, fails with the way out if no scrape has been pushed yet.
+      - name: Check that the backup has posts
+        run: node scripts/publish.mjs check --backup content
+        env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
 
       # One Pages site: the shell at the root (config.json written from the resolved
       # configuration), the served files derived from the backup under /content/.

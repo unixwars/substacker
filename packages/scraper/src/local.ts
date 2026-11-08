@@ -94,3 +94,17 @@ export function lockIsStale(lock: LockInfo | undefined, ctx: { now: number; aliv
   if (ctx.now - lock.startedAt > LOCK_MAX_AGE_MS) return true;
   return !ctx.alive(lock.pid);
 }
+
+export type ScrapeMode = "local" | "ci";
+
+/**
+ * Where the scrape runs, from the repository variable `SUBSTACKER_SCRAPE`: `local` (the
+ * default) means a machine you control pushes the backup and the workflow only builds and
+ * deploys; `ci` means the workflow scrapes too.
+ */
+export function scrapeMode(value: string | undefined): ScrapeMode {
+  const v = (value ?? "").trim().toLowerCase();
+  if (v === "" || v === "local") return "local";
+  if (v === "ci") return "ci";
+  throw new Error(`SUBSTACKER_SCRAPE must be "local" or "ci", not "${value}".`);
+}

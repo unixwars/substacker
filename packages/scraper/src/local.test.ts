@@ -108,3 +108,19 @@ describe("lock", () => {
     expect(lockIsStale(undefined, { now: 1, alive: () => true })).toBe(true);
   });
 });
+
+describe("scrapeMode", () => {
+  it("is local by default and for blank, and ci only when asked", async () => {
+    const { scrapeMode } = await import("./local.js");
+    expect(scrapeMode(undefined)).toBe("local");
+    expect(scrapeMode("")).toBe("local");
+    expect(scrapeMode("  ")).toBe("local");
+    expect(scrapeMode("local")).toBe("local");
+    expect(scrapeMode("ci")).toBe("ci");
+    expect(scrapeMode(" CI ")).toBe("ci");
+  });
+  it("rejects anything else rather than guessing", async () => {
+    const { scrapeMode } = await import("./local.js");
+    expect(() => scrapeMode("cloud")).toThrow(/SUBSTACKER_SCRAPE.*local.*ci/);
+  });
+});
