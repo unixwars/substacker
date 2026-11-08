@@ -100,7 +100,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Skipped until apps/shell exists.
       - name: Install Playwright browser
         if: hashFiles('apps/shell/package.json') != ''
         run: npx playwright install --with-deps chromium
