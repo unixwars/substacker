@@ -101,7 +101,16 @@ GitHub disables scheduled workflows after 60 days without repository activity. I
 
 ## Serving the shell under a path
 
-The shell uses hash routes and takes its Vite base from the environment, so it works on any static host under any path. Details are added with the shell (plan task 13).
+The shell uses hash routes (`#/p/<slug>`), so any static host can serve it and a reload never needs server rewrites. Vite's base comes from the environment when building:
+
+```bash
+SUBSTACKER_BASE=/my-repo/ npm run build -w substacker-shell   # project Pages site
+SUBSTACKER_BASE=./        npm run build -w substacker-shell   # relative: works under any path
+```
+
+The default is `/`. The shell reads `config.json` from its own folder (`contentUrl`, `feedName`, `subscribeUrl`, `actions`, `utmSource`, and optionally `offlineCapBytes`, default 50 MB), and the publish workflow writes it from the resolved configuration.
+
+Offline reading is handled by a service worker generated at build time (`sw.js`, with the list of files to precache). Project Pages sites share one origin with all of their owner's other sites, so its cache names and its IndexedDB database carry a prefix taken from the base path (`substacker:/my-repo/:`) and cleanup only touches that prefix. The worker handles content under the shell's own path (`index.json`, `search.json` and `config.json` are served stale-while-revalidate; posts and images are stored when opened); a content address on another origin is not cached.
 
 ## Contract policy
 

@@ -8,3 +8,6 @@ export const scenarios = {
   // A feed with no posts.
   empty: { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker" }, hidden: [], noPosts: true },
 };
+
+// A tiny offline cap, so opening a second post evicts the first.
+scenarios.capped = { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker", offlineCapBytes: 1 }, hidden: [] };

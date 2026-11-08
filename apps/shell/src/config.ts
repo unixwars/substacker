@@ -7,6 +7,8 @@ export const ShellConfigSchema = z.object({
   subscribeUrl: z.string().optional(),
   actions: z.array(z.enum(["comment", "share"])).default([]),
   utmSource: z.string().min(1).default("substacker"),
+  /** Cap on posts and images kept for offline reading. Default 50 MB. */
+  offlineCapBytes: z.number().int().nonnegative().optional(),
 });
 
 export type ShellConfig = z.infer<typeof ShellConfigSchema>;

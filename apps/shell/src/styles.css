@@ -33,3 +33,4 @@ a { color: var(--accent); }
 .post-footer { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 1rem; display: grid; gap: 1rem; }
 .dock { display: flex; gap: 1rem; }
 .pager { display: flex; justify-content: space-between; gap: 1rem; }
+.offline-marker { display: inline-block; margin: .25rem 0; padding: 0 .5rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: .75rem; }

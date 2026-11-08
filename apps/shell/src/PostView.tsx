@@ -4,8 +4,15 @@ import { sanitizeHtml } from "substacker-core/dom";
 import { usePost } from "substacker-core/react";
 import type { ShellConfig } from "./config.js";
 import { listHref, postHref } from "./route.js";
+import { postUrl, useOfflineKeys } from "./useOffline.js";
 
 const KIND_LABEL = { comment: "Comments", share: "Share" } as const;
+
+function errorText(reason: "network" | "malformed" | "not-found"): string {
+  if (reason === "not-found") return "Post not found.";
+  if (reason === "network" && !navigator.onLine) return "This post is not available offline.";
+  return `Could not load the post (${reason}).`;
+}
 
 function Body({ html, base }: { html: string; base: string }) {
   // Sanitized again at render time: the content branch is not trusted.
@@ -15,12 +22,13 @@ function Body({ html, base }: { html: string; base: string }) {
 
 export function PostView({ base, slug, config }: { base: string; slug: string; config: ShellConfig }) {
   const state = usePost(base, slug);
+  const offline = useOfflineKeys(`${slug}:${state.status}`);
   if (state.status === "loading") return <p role="status">Loading</p>;
   if (state.status === "unsupported") return <p role="alert">This content needs a newer version of the reader.</p>;
   if (state.status === "error") {
     return (
       <div role="alert">
-        <p>{state.reason === "not-found" ? "Post not found." : `Could not load the post (${state.reason}).`}</p>
+        <p>{errorText(state.reason)}</p>
         <a href={listHref()}>All posts</a>
       </div>
     );
@@ -31,6 +39,7 @@ export function PostView({ base, slug, config }: { base: string; slug: string; c
     <article className="post">
       <p><a href={listHref()}>All posts</a></p>
       <h1>{post.title}</h1>
+      {offline.has(postUrl(base, post.slug)) ? <p className="offline-marker" data-offline="true">Available offline</p> : null}
       <time dateTime={post.date}>{new Date(post.date).toLocaleDateString("en", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}</time>
       <Body html={post.html} base={base} />
       <footer className="post-footer">
