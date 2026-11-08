@@ -84,7 +84,7 @@ npm ci
 npm run build
 ```
 
-To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run the `substacker-scrape` and `substacker-build` CLIs (available after the scraper tasks of the plan).
+To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run `npx substacker-scrape --backup content` and `npx substacker-build --backup content --out site/content` (both accept `--help`).
 
 ## Repository variables and secrets
 
