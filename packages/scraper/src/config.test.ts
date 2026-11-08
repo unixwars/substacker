@@ -28,6 +28,28 @@ describe("loadConfig", () => {
     expect(c.relayUrl).toBe("https://relay.example.workers.dev");
     expect(c.subscribeUrl).toBe("https://example.substack.com/subscribe");
   });
+  it.each([
+    ["a feedUrl that is not http(s)", { feedUrl: "ftp://example.substack.com/feed" }],
+    ["a javascript: subscribeUrl", { subscribeUrl: "javascript:alert(1)" }],
+    ["a file: feedUrl", { feedUrl: "file:///etc/passwd" }],
+    ["a plain http relay", { relayUrl: "http://relay.example.workers.dev" }],
+    ["a plain http relay on localhost", { relayUrl: "http://localhost:8787" }],
+    ["a non-http relay", { relayUrl: "ftp://relay.example.test" }],
+  ])("rejects %s", (_n, extra) => {
+    expect(() => loadConfig({ SUBSTACKER_CONFIG: JSON.stringify({ ...valid, ...extra }) }, none)).toThrow(ConfigError);
+  });
+  it("allows an http relay on localhost only when the test-only option is injected", () => {
+    const env = { SUBSTACKER_CONFIG: JSON.stringify({ ...valid, relayUrl: "http://localhost:8787" }) };
+    expect(loadConfig(env, none, { allowPrivate: true }).relayUrl).toBe("http://localhost:8787");
+    const remote = { SUBSTACKER_CONFIG: JSON.stringify({ ...valid, relayUrl: "http://relay.example.test" }) };
+    expect(() => loadConfig(remote, none, { allowPrivate: true })).toThrow(/https/);
+  });
+  it("bounds maxConcurrentDownloads to 1-8", () => {
+    const c = (n: unknown) => loadConfig({ SUBSTACKER_CONFIG: JSON.stringify({ ...valid, maxConcurrentDownloads: n }) }, none);
+    expect(c(1).maxConcurrentDownloads).toBe(1);
+    expect(c(8).maxConcurrentDownloads).toBe(8);
+    for (const bad of [0, 9, 2.5, "4"]) expect(() => c(bad)).toThrow(ConfigError);
+  });
   it("fails naming the example file when neither exists", () => {
     expect(() => loadConfig({}, none)).toThrow(/substacker\.config\.example\.json/);
     expect(() => loadConfig({}, none)).toThrow(ConfigError);

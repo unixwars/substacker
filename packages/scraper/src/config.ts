@@ -3,11 +3,18 @@ import { z } from "zod";
 export const CONFIG_FILE = "substacker.config.local.json";
 export const EXAMPLE_FILE = "substacker.config.example.json";
 
+/**
+ * An http(s) address. Not `z.httpUrl()`, which also refuses `localhost` and IP hosts that the
+ * test suites' local servers use; whether plain http is acceptable is decided where it is used
+ * (the fetcher for the feed, `loadConfig` for the relay).
+ */
+const httpUrl = z.string().refine((v) => URL.canParse(v) && /^https?:$/.test(new URL(v).protocol) && new URL(v).hostname !== "", "must be an http(s) URL");
+
 export const ConfigSchema = z.object({
-  feedUrl: z.url(),
+  feedUrl: httpUrl,
   feedName: z.string().min(1),
-  relayUrl: z.url().optional(),
-  subscribeUrl: z.url().optional(),
+  relayUrl: httpUrl.optional(),
+  subscribeUrl: httpUrl.optional(),
   actions: z.array(z.enum(["comment", "share"])).default([]),
   utmSource: z.string().min(1).default("substacker"),
   hidden: z.array(z.string()).default([]),
@@ -32,6 +39,8 @@ export class ConfigError extends Error {
 export function loadConfig(
   env: Record<string, string | undefined>,
   readFile: (path: string) => string | undefined,
+  /** `allowPrivate` is for the test suites and the dry run only, never for a user's configuration: it lets `relayUrl` be plain http on a local address. */
+  opts: { allowPrivate?: boolean } = {},
 ): Config {
   const fromEnv = env["SUBSTACKER_CONFIG"];
   const text = fromEnv !== undefined && fromEnv.trim() !== "" ? fromEnv : readFile(CONFIG_FILE);
@@ -51,6 +60,13 @@ export function loadConfig(
   if (!result.success) {
     const issue = result.error.issues[0];
     throw new ConfigError(`${source} is invalid at ${issue?.path.join(".") || "(root)"}: ${issue?.message}. See ${EXAMPLE_FILE}.`);
+  }
+  const relay = result.data.relayUrl ? new URL(result.data.relayUrl) : undefined;
+  if (relay && relay.protocol !== "https:") {
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(relay.hostname);
+    if (!(opts.allowPrivate && local)) {
+      throw new ConfigError(`${source} is invalid at relayUrl: the relay must be an https address (the secret travels with every request). See ${EXAMPLE_FILE}.`);
+    }
   }
   return result.data;
 }

@@ -20,10 +20,10 @@ export async function runScrape(args: string[], env: Record<string, string | und
     return 0;
   }
   const dir = option(args, "--backup", "content");
-  const config = loadConfig(env, readIfExists);
   // Only the test suites and the publish dry run set this (they serve a feed from loopback).
   // It is an environment variable, not part of the configuration document.
   const allowPrivate = env["SUBSTACKER_UNSAFE_ALLOW_PRIVATE_NETWORK"] === "1";
+  const config = loadConfig(env, readIfExists, { allowPrivate });
   const changes = await scrape(config, { fetch: createPinnedFetch({ allowPrivate }), allowPrivate, backup: diskBackup(dir), env, log: (m) => console.warn(m) });
   writeChanges(dir, changes);
   const raws = changes.filter((c) => c.kind === "raw").length;
