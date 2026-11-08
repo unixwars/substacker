@@ -44,7 +44,56 @@ Settings are not stored in the repository, so no publication is named in the cod
 
 ## 4. Protect the `content` branch
 
-It is the only copy of posts older than the feed window (the feed carries about the latest 20). Add a repository ruleset on `content` that blocks force pushes and deletion. Nothing in the project rewrites its history.
+It is the only copy of posts older than the feed window (the feed carries about the latest 20). Add a repository ruleset on `content` that blocks force pushes and deletion. Nothing in the project rewrites its history. A ruleset can only be applied by a repository admin, so this is a manual step.
+
+In the web UI: Settings, Rules, Rulesets, New ruleset, New branch ruleset.
+
+1. Name: `protect-content`. Enforcement status: Active.
+2. Target branches: Add target, Include by pattern, `content`.
+3. Branch rules: tick **Restrict deletions** and **Block force pushes**. Leave everything else off: the publish workflow pushes to this branch directly with the workflow token, so do not require pull requests or status checks.
+4. Bypass list: leave empty.
+5. Create.
+
+Or with the GitHub CLI, from a clone of your repository:
+
+```bash
+gh api -X POST "repos/{owner}/{repo}/rulesets" --input - <<'JSON'
+{
+  "name": "protect-content",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/content"], "exclude": [] } },
+  "rules": [{ "type": "deletion" }, { "type": "non_fast_forward" }],
+  "bypass_actors": []
+}
+JSON
+```
+
+Check it: `git push --force origin <anything>:content` must be rejected.
+
+The same ruleset logic applies to `main` if you like (require the `CI` workflow to pass), but the project does not depend on it.
+
+## Local development
+
+Prerequisites: Node.js 22 or newer and npm. There is no Docker and no database.
+
+```bash
+git clone https://github.com/unixwars/substacker.git
+cd substacker
+npm ci
+npm run build
+```
+
+To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run the `substacker-scrape` and `substacker-build` CLIs (available after the scraper tasks of the plan).
+
+## Repository variables and secrets
+
+| Name | Kind | Used by |
+|---|---|---|
+| `SUBSTACKER_CONFIG` | Actions variable | publish workflow; the configuration JSON (step 2) |
+| `SUBSTACKER_RELAY_SECRET` | Actions secret | only if you use `relayUrl`; sent to the relay as a shared-secret header |
+
+CI (`.github/workflows/ci.yml`) needs neither: its tests use fixtures and no real feed.
 
 ## 5. If the schedule lapses
 

@@ -1,0 +1,119 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: npm audit (production dependencies, high and above)
+        run: |
+          set -o pipefail
+          npm audit --omit=dev --audit-level=high 2>&1 | tee audit.txt || status=$?
+          {
+            echo '### npm audit (production dependencies, level high)'
+            echo '```'
+            cat audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "${status:-0}"
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Unit tests with coverage and JUnit report
+        run: npm run test:unit -- --coverage --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-reports
+          path: |
+            test-results/
+            coverage/
+          if-no-files-found: warn
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Fixture feed through scrape and build, idempotence, and packing
+      # substacker-core then importing every subpath from an empty project.
+      - name: Integration tests with JUnit report
+        run: npm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-reports
+          path: test-results/
+          if-no-files-found: warn
+
+  e2e:
+    name: Shell end-to-end (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Skipped until apps/shell exists.
+      - name: Install Playwright browser
+        if: hashFiles('apps/shell/package.json') != ''
+        run: npx playwright install --with-deps chromium
+      - name: Build and run Playwright
+        if: hashFiles('apps/shell/package.json') != ''
+        run: |
+          npm run build
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('apps/shell/package.json') != ''
+        with:
+          name: e2e-reports
+          path: |
+            apps/shell/playwright-report/
+            apps/shell/test-results/
+          if-no-files-found: warn
