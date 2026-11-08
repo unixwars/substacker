@@ -1,4 +1,4 @@
-import { imageName } from "substacker-core";
+import { imageFilesByKey, imageKey } from "substacker-core";
 import { describe, expect, it } from "vitest";
 import { buildIndex, derivePost, imageUrls } from "./derive.js";
 import { parseFeed } from "./feed.js";
@@ -6,7 +6,7 @@ import { feedXml, fixtureFeed } from "./test-support/feeds.js";
 
 const items = parseFeed(fixtureFeed);
 const raw = (slug: string) => items.find((i) => i.slug === slug)?.raw ?? "";
-const none = new Set<string>();
+const none = new Map<string, string>();
 
 describe("imageUrls", () => {
   it("lists the cover and the images kept in the body, once each, http(s) only", () => {
@@ -46,17 +46,17 @@ describe("derivePost", () => {
     expect(post.cover).toContain("substackcdn.com");
   });
   it("points at local copies that are present", () => {
-    const present = new Set(imageUrls(raw("hello-world")).map(imageName));
+    const present = imageFilesByKey(imageUrls(raw("hello-world")).map((u, i) => `${imageKey(u)}.${i === 0 ? "webp" : "png"}`));
     const post = derivePost(raw("hello-world"), present);
     expect(post.unlocalized).toBe(0);
     expect(post.html).not.toContain("substackcdn.com");
     expect(post.html).not.toContain("unsplash");
-    expect(post.html).toMatch(/src="images\/[0-9a-f]{14}\.(jpeg|bin)"/);
-    expect(post.cover).toMatch(/^images\/[0-9a-f]{14}\.jpeg$/);
+    expect(post.html).toMatch(/src="images\/[0-9a-f]{14}\.(webp|png)"/);
+    expect(post.cover).toMatch(/^images\/[0-9a-f]{14}\.(webp|png)$/);
   });
   it("marks only the image whose file is missing", () => {
     const urls = imageUrls(raw("hello-world"));
-    const present = new Set([imageName(urls[0] ?? "")]);
+    const present = imageFilesByKey([`${imageKey(urls[0] ?? "")}.jpg`]);
     const post = derivePost(raw("hello-world"), present);
     expect(post.unlocalized).toBe(1);
   });

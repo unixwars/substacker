@@ -1,4 +1,4 @@
-import { imageName } from "substacker-core";
+import { imageKey } from "substacker-core";
 import { describe, expect, it } from "vitest";
 import type { Config } from "./config.js";
 import { imageUrls } from "./derive.js";
@@ -11,10 +11,10 @@ const config: Config = { feedUrl: "https://example.substack.com/feed", feedName:
 
 class Memory implements BackupReader {
   raw = new Map<string, string>();
-  images = new Set<string>();
+  images = new Set<string>(); // file names, `<key>.<ext>`
   slugs = () => [...this.raw.keys()];
   readRaw = (s: string) => this.raw.get(s);
-  hasImage = (n: string) => this.images.has(n);
+  hasImage = (key: string) => [...this.images].some((n) => n.startsWith(`${key}.`));
   apply(changes: Change[]) {
     for (const c of changes) {
       if (c.kind === "raw") this.raw.set(c.slug, c.content);
@@ -23,15 +23,16 @@ class Memory implements BackupReader {
   }
 }
 
-const respond = (body: string, init: ResponseInit = {}) => new Response(body, { status: 200, ...init });
-function fetcher(feed: string | (() => Response), failImages = false) {
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+const respond = (body: BodyInit, init: ResponseInit = {}) => new Response(body, { status: 200, ...init });
+function fetcher(feed: string | (() => Response), failImages = false, image: () => Response = () => respond(PNG, { headers: { "content-type": "image/png" } })) {
   const calls: string[] = [];
   const fn = (async (input: RequestInfo | URL) => {
     const url = String(input);
     calls.push(url);
     if (url === config.feedUrl) return typeof feed === "function" ? feed() : respond(feed);
     if (failImages) return new Response("no", { status: 500 });
-    return respond("image-bytes");
+    return image();
   }) as typeof fetch;
   return { fn, calls };
 }
@@ -41,8 +42,10 @@ describe("scrape", () => {
     const backup = new Memory();
     const changes = await scrape(config, { fetch: fetcher(fixtureFeed).fn, backup });
     expect(changes.filter((c) => c.kind === "raw")).toHaveLength(3);
-    const expectedImages = new Set(parseFeed(fixtureFeed).flatMap((i) => imageUrls(i.raw)).map(imageName));
-    expect(new Set(changes.filter((c) => c.kind === "image").map((c) => (c as { name: string }).name))).toEqual(expectedImages);
+    const expectedImages = new Set(parseFeed(fixtureFeed).flatMap((i) => imageUrls(i.raw)).map(imageKey));
+    const names = changes.filter((c) => c.kind === "image").map((c) => (c as { name: string }).name);
+    expect(new Set(names.map((n) => n.replace(/\.png$/, "")))).toEqual(expectedImages);
+    expect(names.every((n) => /^[0-9a-f]{14}\.png$/.test(n))).toBe(true);
   });
   it("a second scrape returns no changes", async () => {
     const backup = new Memory();
@@ -71,6 +74,16 @@ describe("scrape", () => {
     ["not a feed", () => respond("<html></html>")],
   ])("%s throws and returns no changes", async (_n, feed) => {
     await expect(scrape(config, { fetch: fetcher(feed).fn, backup: new Memory() })).rejects.toThrow(ScrapeError);
+  });
+  it("a 403 without a relay says to set one up", async () => {
+    const f = fetcher(() => new Response("blocked", { status: 403 }));
+    await expect(scrape(config, { fetch: f.fn, backup: new Memory() })).rejects.toThrow(/HTTP 403.*relayUrl/);
+  });
+  it("a 403 through the relay is a plain failure", async () => {
+    const fn = (async () => new Response("no", { status: 403 })) as typeof fetch;
+    const err = await scrape({ ...config, relayUrl: "https://relay.example.workers.dev" }, { fetch: fn, backup: new Memory(), env: { SUBSTACKER_RELAY_SECRET: "s" } }).catch((e: unknown) => e);
+    expect(String(err)).toMatch(/HTTP 403/);
+    expect(String(err)).not.toMatch(/set relayUrl/);
   });
   it("a network error throws", async () => {
     const fn = (async () => { throw new TypeError("offline"); }) as typeof fetch;
@@ -102,6 +115,38 @@ describe("scrape", () => {
     const second = await scrape(config, { fetch: fetcher(fixtureFeed).fn, backup });
     expect(second.filter((c) => c.kind === "raw")).toHaveLength(0);
     expect(second.filter((c) => c.kind === "image").length).toBeGreaterThan(0);
+  });
+  it("names the extension from the bytes, whatever the address and Content-Type say", async () => {
+    const jpg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+    const f = fetcher(fixtureFeed, false, () => respond(jpg, { headers: { "content-type": "application/octet-stream" } }));
+    const changes = await scrape(config, { fetch: f.fn, backup: new Memory() });
+    const names = changes.filter((c) => c.kind === "image").map((c) => (c as { name: string }).name);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.every((n) => n.endsWith(".jpg"))).toBe(true);
+  });
+  it("falls back to the Content-Type when the bytes are not recognised", async () => {
+    const f = fetcher(fixtureFeed, false, () => respond("??", { headers: { "content-type": "image/webp" } }));
+    const changes = await scrape(config, { fetch: f.fn, backup: new Memory() });
+    expect(changes.filter((c) => c.kind === "image").every((c) => (c as { name: string }).name.endsWith(".webp"))).toBe(true);
+  });
+  it("treats an unrecognised download as failed: no .bin, retried next run", async () => {
+    const backup = new Memory();
+    const logs: string[] = [];
+    const bad = fetcher(fixtureFeed, false, () => respond("<html>blocked</html>", { headers: { "content-type": "text/html" } }));
+    const first = await scrape(config, { fetch: bad.fn, backup, log: (m) => logs.push(m) });
+    expect(first.filter((c) => c.kind === "image")).toEqual([]);
+    expect(logs.some((m) => /not a recognised image/.test(m))).toBe(true);
+    backup.apply(first);
+    const second = await scrape(config, { fetch: fetcher(fixtureFeed).fn, backup });
+    expect(second.filter((c) => c.kind === "image").length).toBeGreaterThan(0);
+  });
+  it("does not download an image that is present under any extension", async () => {
+    const backup = new Memory();
+    backup.apply(await scrape(config, { fetch: fetcher(fixtureFeed).fn, backup }));
+    backup.images = new Set([...backup.images].map((n) => n.replace(/\.png$/, ".avif")));
+    const f = fetcher(fixtureFeed);
+    expect(await scrape(config, { fetch: f.fn, backup })).toEqual([]);
+    expect(f.calls).toEqual([config.feedUrl]);
   });
   it("downloads a shared image once", async () => {
     const f = fetcher(fixtureFeed);

@@ -18,7 +18,7 @@ if (!existsSync(join(scraperDist, "build.js"))) {
 const { build } = await import(join(scraperDist, "build.js"));
 const { parseFeed } = await import(join(scraperDist, "feed.js"));
 const { imageUrls } = await import(join(scraperDist, "derive.js"));
-const { imageName } = await import("substacker-core");
+const { imageKey } = await import("substacker-core");
 
 rmSync(e2e, { recursive: true, force: true });
 execFileSync("npx", ["vite", "build", "--outDir", join(e2e, "dist"), "--emptyOutDir"], {
@@ -35,7 +35,7 @@ mkdirSync(join(backup, "raw"), { recursive: true });
 mkdirSync(join(backup, "images"), { recursive: true });
 for (const { slug, raw } of parseFeed(feed)) {
   writeFileSync(join(backup, "raw", `${slug}.xml`), raw);
-  for (const url of imageUrls(raw)) writeFileSync(join(backup, "images", imageName(url)), png);
+  for (const url of imageUrls(raw)) writeFileSync(join(backup, "images", `${imageKey(url)}.png`), png);
 }
 const emptyBackup = join(e2e, "backup-empty");
 mkdirSync(emptyBackup, { recursive: true });

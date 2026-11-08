@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { imageName, parseDocs, parseIndex, parsePost } from "substacker-core";
+import { imageKey, parseDocs, parseIndex, parsePost } from "substacker-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { build } from "./build.js";
 import type { Config } from "./config.js";
@@ -17,7 +17,7 @@ function seed(withImages: boolean) {
   mkdirSync(join(dir, "images"), { recursive: true });
   for (const { slug, raw } of parseFeed(fixtureFeed)) {
     writeFileSync(join(dir, "raw", `${slug}.xml`), raw);
-    if (withImages) for (const url of imageUrls(raw)) writeFileSync(join(dir, "images", imageName(url)), "img");
+    if (withImages) for (const url of imageUrls(raw)) writeFileSync(join(dir, "images", `${imageKey(url)}.png`), "img");
   }
 }
 
@@ -34,6 +34,15 @@ describe("build", () => {
     expect(parseDocs(JSON.parse(text(files.get("search.json"))))).toHaveLength(3);
     expect(parsePost(JSON.parse(text(files.get("posts/hello-world.json")))).unlocalized).toBe(0);
     expect([...files.keys()].filter((k) => k.startsWith("images/")).length).toBeGreaterThan(0);
+  });
+  it("finds an image by its key whatever its extension, from names alone", () => {
+    seed(false);
+    for (const [i, url] of parseFeed(fixtureFeed).flatMap((x) => imageUrls(x.raw)).entries()) {
+      writeFileSync(join(dir, "images", `${imageKey(url)}.${i % 2 ? "webp" : "gif"}`), "img");
+    }
+    const post = parsePost(JSON.parse(text(build(config, dir).files.get("posts/hello-world.json"))));
+    expect(post.unlocalized).toBe(0);
+    expect(post.html).toMatch(/src="images\/[0-9a-f]{14}\.(webp|gif)"/);
   });
   it("is identical on two runs", () => {
     seed(true);

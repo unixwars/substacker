@@ -77,7 +77,10 @@ describe("scrape then build", () => {
     const post = parsePost(JSON.parse(readFileSync(join(out(), "posts", "hello-world.json"), "utf8")));
     expect(post.unlocalized).toBe(0);
     expect(post.html).toContain('src="images/');
-    expect(readdirSync(join(out(), "images")).length).toBeGreaterThan(0);
+    const names = readdirSync(join(out(), "images"));
+    expect(names.length).toBeGreaterThan(0);
+    // The fixture server sends unrecognisable bytes with an image Content-Type: the fallback names them.
+    expect(names.every((n) => /^[0-9a-f]{14}\.jpg$/.test(n))).toBe(true);
   });
 
   it("is idempotent: a second scrape changes nothing and the build is identical", async () => {

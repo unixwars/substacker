@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Entry } from "./contract.js";
-import { canonicalUrl, dockLinks, imageName, neighbours, outboundUrl, resolveAsset, resolveAssets } from "./post.js";
+import {
+  canonicalUrl,
+  dockLinks,
+  extensionFromContentType,
+  imageFilesByKey,
+  imageKey,
+  neighbours,
+  outboundUrl,
+  resolveAsset,
+  resolveAssets,
+  sniffImageExtension,
+} from "./post.js";
 
 const e = (slug: string): Entry => ({ slug, title: slug, date: "2026-01-01T00:00:00Z", excerpt: "", cover: null });
 const index = { posts: [e("c"), e("b"), e("a")] }; // newest first
@@ -72,23 +83,95 @@ describe("dockLinks", () => {
   });
 });
 
-describe("imageName", () => {
+describe("imageKey", () => {
   const cdn =
     "https://substackcdn.com/image/fetch/$s_!abcd!,w_1456,c_limit,f_auto/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F1111_1200x800.jpeg";
-  it("is stable for the same address", () => {
-    expect(imageName(cdn)).toBe(imageName(cdn));
-  });
-  it("keeps the extension of the underlying image, lower-cased", () => {
-    expect(imageName(cdn)).toMatch(/^[0-9a-f]{14}\.jpeg$/);
-    expect(imageName("https://example.com/a/B.PNG")).toMatch(/\.png$/);
-    expect(imageName("https://example.com/photo?w=800")).toMatch(/\.bin$/);
+  it("is stable for the same address and has no extension", () => {
+    expect(imageKey(cdn)).toBe(imageKey(cdn));
+    expect(imageKey(cdn)).toMatch(/^[0-9a-f]{14}$/);
   });
   it("differs for different addresses, including the query", () => {
-    expect(imageName("https://example.com/a.jpg?w=1")).not.toBe(imageName("https://example.com/a.jpg?w=2"));
-    expect(imageName("https://example.com/a.jpg")).not.toBe(imageName("https://example.com/b.jpg"));
+    expect(imageKey("https://example.com/a.jpg?w=1")).not.toBe(imageKey("https://example.com/a.jpg?w=2"));
+    expect(imageKey("https://example.com/a.jpg")).not.toBe(imageKey("https://example.com/b.jpg"));
   });
   it("has a pinned value, so the scraper and every build agree across versions", () => {
-    expect(imageName("https://example.com/a.jpg")).toBe("026d71faef9eb9.jpg");
+    expect(imageKey("https://example.com/a.jpg")).toBe("026d71faef9eb9");
+  });
+});
+
+describe("imageFilesByKey", () => {
+  it("maps each key to its full file name, whatever the extension", () => {
+    const map = imageFilesByKey(["026d71faef9eb9.png", "ffffffffffffff.webp"]);
+    expect(map.get("026d71faef9eb9")).toBe("026d71faef9eb9.png");
+    expect(map.get("ffffffffffffff")).toBe("ffffffffffffff.webp");
+    expect(map.get("000000000000aa")).toBeUndefined();
+  });
+  it("is deterministic when a key has two files, and ignores names without an extension", () => {
+    expect(imageFilesByKey(["aa.webp", "aa.png"]).get("aa")).toBe("aa.png");
+    expect(imageFilesByKey(["noext"]).size).toBe(0);
+  });
+});
+
+const bytes = (...xs: (number | string)[]) =>
+  Uint8Array.from(xs.flatMap((x) => (typeof x === "string" ? [...x].map((c) => c.charCodeAt(0)) : [x])));
+
+describe("sniffImageExtension", () => {
+  const pad = (b: Uint8Array) => Uint8Array.from([...b, 0, 0, 0, 0]);
+  it.each([
+    ["png", bytes(0x89, "PNG", 0x0d, 0x0a, 0x1a, 0x0a)],
+    ["jpg", bytes(0xff, 0xd8, 0xff, 0xe0)],
+    ["gif", bytes("GIF89a")],
+    ["gif", bytes("GIF87a")],
+    ["webp", bytes("RIFF", 1, 2, 3, 4, "WEBPVP8 ")],
+    ["avif", bytes(0, 0, 0, 0x1c, "ftypavif", 0, 0, 0, 0)],
+    ["avif", bytes(0, 0, 0, 0x1c, "ftypavis", 0, 0, 0, 0)],
+    ["avif", bytes(0, 0, 0, 0x1c, "ftypmif1", 0, 0, 0, 0, "miafavif")],
+    ["heic", bytes(0, 0, 0, 0x18, "ftypheic", 0, 0, 0, 0)],
+    ["heic", bytes(0, 0, 0, 0x1c, "ftypmif1", 0, 0, 0, 0, "mif1heic")],
+    ["bmp", bytes("BM", 0x36, 0, 0, 0, 0, 0, 0, 0, 0x36, 0, 0, 0)],
+    ["ico", bytes(0, 0, 1, 0, 1, 0, 16, 16)],
+    ["svg", bytes('<svg xmlns="http://www.w3.org/2000/svg"></svg>')],
+    ["svg", bytes('  \n<?xml version="1.0"?>\n<!-- c --><svg viewBox="0 0 1 1"></svg>')],
+    ["svg", bytes(0xef, 0xbb, 0xbf, "<svg></svg>")],
+  ])("recognises %s", (ext, data) => {
+    expect(sniffImageExtension(pad(data))).toBe(ext);
+  });
+  it.each([
+    ["empty", new Uint8Array()],
+    ["too short", bytes(0x89, "PN")],
+    ["html", bytes("<!doctype html><html><body>blocked</body></html>")],
+    ["xml that is not svg", bytes('<?xml version="1.0"?><rss></rss>')],
+    ["json", bytes('{"error":"nope"}')],
+    ["a RIFF that is not webp", bytes("RIFF", 1, 2, 3, 4, "WAVEfmt ")],
+    ["an mp4", bytes(0, 0, 0, 0x18, "ftypisom", 0, 0, 0, 0)],
+    ["a zero-led blob that is not ico", bytes(0, 0, 0, 0, 0, 0, 0, 0)],
+  ])("returns undefined for %s", (_n, data) => {
+    expect(sniffImageExtension(data)).toBeUndefined();
+  });
+});
+
+describe("extensionFromContentType", () => {
+  it.each([
+    ["image/png", "png"],
+    ["image/jpeg", "jpg"],
+    ["image/JPEG; charset=binary", "jpg"],
+    ["image/jpg", "jpg"],
+    ["image/gif", "gif"],
+    ["image/webp", "webp"],
+    ["image/avif", "avif"],
+    ["image/heic", "heic"],
+    ["image/svg+xml", "svg"],
+    ["image/bmp", "bmp"],
+    ["image/x-icon", "ico"],
+    ["image/vnd.microsoft.icon", "ico"],
+  ])("maps %s to %s", (type, ext) => {
+    expect(extensionFromContentType(type)).toBe(ext);
+  });
+  it("returns undefined for anything else", () => {
+    expect(extensionFromContentType("text/html")).toBeUndefined();
+    expect(extensionFromContentType("application/octet-stream")).toBeUndefined();
+    expect(extensionFromContentType(null)).toBeUndefined();
+    expect(extensionFromContentType("")).toBeUndefined();
   });
 });
 

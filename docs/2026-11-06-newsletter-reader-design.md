@@ -41,7 +41,7 @@ Distribution: on a release tag, CI runs `npm pack` for `substacker-core` and att
 
 Zod schemas, versioned. There are two layers, and only the first is committed:
 
-- **Backup, on the `content` branch.** `raw/<slug>.xml` is the feed item exactly as received (rewritten only when Substack's copy changes; git keeps the history). `images/<name>` holds the downloaded images, named by `imageName(url)`: a hash of the image's address plus its extension, so the build finds the local copy without reading any file.
+- **Backup, on the `content` branch.** `raw/<slug>.xml` is the feed item exactly as received (rewritten only when Substack's copy changes; git keeps the history). `images/<name>` holds the downloaded images, named `<key>.<ext>`: `imageKey(url)` is a hash of the image's address, and the extension is the one the scraper found by sniffing the downloaded bytes (the response's Content-Type is the fallback; an image that neither identifies counts as a failed download, retried next run, and is never stored as `.bin`). The build maps key to file name by listing the directory, so it finds the local copy without reading any file.
 - **Served, derived on every deploy and published under `/content/` on the Pages site, never committed.** These are the files readers fetch:
 
 | File | Holds |

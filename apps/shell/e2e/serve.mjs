@@ -5,7 +5,7 @@ import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const siteRoot = join(dirname(fileURLToPath(import.meta.url)), "..", ".e2e", "site");
-const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".jpeg": "image/png", ".bin": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
+const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
 
 createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");

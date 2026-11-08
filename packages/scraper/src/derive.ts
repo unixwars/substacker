@@ -1,5 +1,5 @@
 import { JSDOM } from "jsdom";
-import { CONTRACT_VERSION, canonicalUrl, imageName, parsePost } from "substacker-core";
+import { CONTRACT_VERSION, canonicalUrl, imageKey, parsePost } from "substacker-core";
 import type { Doc, Entry, Index, Post, SanitizePolicy } from "substacker-core";
 import { sanitizeHtml } from "substacker-core/dom";
 import type { DomParser } from "substacker-core/dom";
@@ -44,18 +44,19 @@ function excerptOf(description: string, bodyHtml: string): string {
 
 /**
  * Build the served post from a raw item. An image whose local copy is in `present`
- * (a set of `imageName` values) is pointed at `images/<name>`; any other keeps its
- * original address and is counted in `unlocalized`.
+ * (`present` maps an `imageKey` to the stored file name, see `imageFilesByKey`) is
+ * pointed at `images/<file name>`; any other keeps its original address and is
+ * counted in `unlocalized`.
  */
-export function derivePost(raw: string, present: ReadonlySet<string>, opts: DeriveOptions = {}): Post {
+export function derivePost(raw: string, present: ReadonlyMap<string, string>, opts: DeriveOptions = {}): Post {
   const item = parseItem(raw);
   const stripped = stripWidgets(item.html);
   const missing = new Set<string>();
 
   const localize = (url: string): string => {
     if (!isRemote(url)) return url;
-    const name = imageName(url);
-    if (present.has(name)) return `images/${name}`;
+    const name = present.get(imageKey(url));
+    if (name) return `images/${name}`;
     missing.add(url);
     return url;
   };

@@ -1,10 +1,11 @@
-import { imageName } from "substacker-core";
+import { extensionFromContentType, imageKey, sniffImageExtension } from "substacker-core";
 import type { Config } from "./config.js";
 import { imageUrls } from "./derive.js";
 import { FeedError, parseFeed } from "./feed.js";
 
 export type Change =
   | { kind: "raw"; slug: string; content: string }
+  /** `name` is `<key>.<extension>`; the extension comes from the bytes, never from the address. */
   | { kind: "image"; name: string; data: Uint8Array };
 
 /** What the scraper may read of the existing backup. It never writes. */
@@ -12,7 +13,8 @@ export interface BackupReader {
   /** Slugs of every stored raw item. */
   slugs(): string[];
   readRaw(slug: string): string | undefined;
-  hasImage(name: string): boolean;
+  /** Whether a file for this image key (`<key>.<any extension>`) is already stored. */
+  hasImage(key: string): boolean;
 }
 
 export interface ScrapeDeps {
@@ -66,17 +68,29 @@ async function fetchFeedText(config: Config, deps: ScrapeDeps): Promise<string> 
     if (e instanceof ScrapeError) throw e;
     throw new ScrapeError(`feed fetch failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+  if (res.status === 403 && !config.relayUrl) {
+    throw new ScrapeError(
+      "feed fetch failed: HTTP 403. The publication refuses this network (GitHub's runners are often blocked). Deploy the relay and set relayUrl in the configuration; see docs/setup.md.",
+    );
+  }
   if (!res.ok) throw new ScrapeError(`feed fetch failed: HTTP ${res.status}`);
   return res.text();
 }
 
-async function downloadImage(fetchFn: typeof fetch, url: string): Promise<Uint8Array> {
+/**
+ * Download an image and name its extension from its bytes, else from the response's
+ * Content-Type. If neither says it is an image (a blocking page served with 200, say),
+ * it fails and is retried on the next run; nothing is ever stored as `.bin`.
+ */
+async function downloadImage(fetchFn: typeof fetch, url: string): Promise<{ data: Uint8Array; ext: string }> {
   const res = await fetchFn(url, { redirect: "follow" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = new Uint8Array(await res.arrayBuffer());
   if (data.byteLength === 0) throw new Error("empty body");
   if (data.byteLength > MAX_IMAGE_BYTES) throw new Error("too large");
-  return data;
+  const ext = sniffImageExtension(data) ?? extensionFromContentType(res.headers.get("content-type"));
+  if (!ext) throw new Error("not a recognised image");
+  return { data, ext };
 }
 
 /**
@@ -118,11 +132,12 @@ export async function scrape(config: Config, deps: ScrapeDeps): Promise<Change[]
   }
   const done = new Set<string>();
   for (const url of [...wanted].sort()) {
-    const name = imageName(url);
-    if (done.has(name) || deps.backup.hasImage(name)) continue;
-    done.add(name);
+    const key = imageKey(url);
+    if (done.has(key) || deps.backup.hasImage(key)) continue;
+    done.add(key);
     try {
-      changes.push({ kind: "image", name, data: await downloadImage(deps.fetch, url) });
+      const { data, ext } = await downloadImage(deps.fetch, url);
+      changes.push({ kind: "image", name: `${key}.${ext}`, data });
     } catch (e) {
       log(`image not downloaded, will retry next run: ${url} (${e instanceof Error ? e.message : String(e)})`);
     }

@@ -72,22 +72,96 @@ function hash53(str: string): number {
   return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
-const IMAGE_EXTENSION = /\.(avif|gif|jpe?g|png|svg|webp)$/i;
+/**
+ * Key of an image: a hash of its full address. The local file is
+ * `<key>.<extension>`, where the scraper writes the extension it found by looking
+ * at the bytes (`sniffImageExtension`). The key needs no content, so a build finds
+ * the copy by listing file names, without reading any file.
+ */
+export function imageKey(url: string): string {
+  return hash53(url).toString(16).padStart(14, "0");
+}
+
+/** Key to full file name for a listing of image file names. Names without an extension are ignored. */
+export function imageFilesByKey(names: Iterable<string>): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const name of [...names].sort()) {
+    const dot = name.indexOf(".");
+    if (dot <= 0 || dot === name.length - 1) continue;
+    const key = name.slice(0, dot);
+    if (!map.has(key)) map.set(key, name);
+  }
+  return map;
+}
+
+const ascii = (b: Uint8Array, start: number, text: string): boolean =>
+  b.length >= start + text.length && [...text].every((c, i) => b[start + i] === c.charCodeAt(0));
+
+const HEIC_BRANDS = ["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs"];
+
+function sniffIsoBrand(b: Uint8Array): string | undefined {
+  if (!ascii(b, 4, "ftyp")) return undefined;
+  const brands: string[] = [];
+  for (let i = 8; i + 4 <= Math.min(b.length, 64); i += 4) {
+    if (i === 12) continue; // minor version, not a brand
+    brands.push(String.fromCharCode(b[i] ?? 0, b[i + 1] ?? 0, b[i + 2] ?? 0, b[i + 3] ?? 0));
+  }
+  const major = brands[0];
+  if (major === "avif" || major === "avis") return "avif";
+  if (major !== undefined && HEIC_BRANDS.includes(major)) return "heic";
+  if (major === "mif1" || major === "msf1") {
+    if (brands.includes("avif") || brands.includes("avis")) return "avif";
+    if (brands.some((x) => HEIC_BRANDS.includes(x))) return "heic";
+  }
+  return undefined;
+}
+
+function sniffSvg(b: Uint8Array): boolean {
+  let head = "";
+  for (let i = 0; i < Math.min(b.length, 4096); i++) head += String.fromCharCode(b[i] ?? 0);
+  head = head.replace(/^\u00ef\u00bb\u00bf/, "").trimStart().toLowerCase();
+  if (head.startsWith("<svg")) return true;
+  return /^(?:<\?xml|<!--|<!doctype svg)/.test(head) && head.includes("<svg");
+}
 
 /**
- * Local file name of an image: a hash of its full address plus the extension of
- * the underlying image (`bin` when there is none). The scraper and the build both
- * use it, so a copy is found by name without reading any file.
+ * The file extension of an image, from its first bytes (magic numbers), or
+ * undefined when the bytes are not a recognised image. Pure: no platform `file`.
  */
-export function imageName(url: string): string {
-  let path = url.split(/[?#]/)[0] ?? url;
-  try {
-    path = decodeURIComponent(path);
-  } catch {
-    // keep the raw path
-  }
-  const ext = IMAGE_EXTENSION.exec(path)?.[1]?.toLowerCase() ?? "bin";
-  return `${hash53(url).toString(16).padStart(14, "0")}.${ext}`;
+export function sniffImageExtension(bytes: Uint8Array): string | undefined {
+  const b = bytes;
+  if (b[0] === 0x89 && ascii(b, 1, "PNG\r\n\x1a\n")) return "png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (ascii(b, 0, "GIF87a") || ascii(b, 0, "GIF89a")) return "gif";
+  if (ascii(b, 0, "RIFF") && ascii(b, 8, "WEBP")) return "webp";
+  const iso = sniffIsoBrand(b);
+  if (iso) return iso;
+  if (ascii(b, 0, "BM") && b.length >= 14 && b[6] === 0 && b[7] === 0 && b[8] === 0 && b[9] === 0) return "bmp";
+  if (b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0 && ((b[4] ?? 0) > 0 || (b[5] ?? 0) > 0)) return "ico";
+  if (sniffSvg(b)) return "svg";
+  return undefined;
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/pjpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/avif": "avif",
+  "image/heic": "heic",
+  "image/heif": "heic",
+  "image/svg+xml": "svg",
+  "image/bmp": "bmp",
+  "image/x-icon": "ico",
+  "image/vnd.microsoft.icon": "ico",
+};
+
+/** Fallback for `sniffImageExtension`: the extension for a response's Content-Type, if it names an image. */
+export function extensionFromContentType(contentType: string | null | undefined): string | undefined {
+  const type = contentType?.split(";")[0]?.trim().toLowerCase();
+  return type ? CONTENT_TYPES[type] : undefined;
 }
 
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;

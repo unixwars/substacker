@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { imageFilesByKey } from "substacker-core";
 import type { Post } from "substacker-core";
 import type { DeriveOptions } from "./derive.js";
 import { buildIndex, derivePost } from "./derive.js";
@@ -23,7 +24,7 @@ export function build(config: Config, backupDir: string, opts: DeriveOptions = {
   const rawDir = join(backupDir, "raw");
   const imagesDir = join(backupDir, "images");
   const imageNames = existsSync(imagesDir) ? readdirSync(imagesDir).sort() : [];
-  const present = new Set(imageNames);
+  const present = imageFilesByKey(imageNames);
   const slugs = existsSync(rawDir) ? readdirSync(rawDir).filter((f) => f.endsWith(".xml")).map((f) => f.slice(0, -4)).sort() : [];
 
   const files: Files = new Map();
