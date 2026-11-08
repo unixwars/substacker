@@ -1,12 +1,25 @@
 # Setup and forking
 
-Status: the commands and file names below exist; the live steps (Pages, the ruleset, the relay, a scheduled run) have not been run against a real repository yet. The probe found that GitHub-hosted runners are refused by the feed, so plan on the relay (step 3a).
+Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The probe found that the feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", step 3c).
+
+## Two modes: where the scrape runs
+
+The feed refuses GitHub's runners (the probe got HTTP 403 whatever user agent was sent), and the Cloudflare relay did not help (HTTP 429 through it). So the repository variable `SUBSTACKER_SCRAPE` selects where the scrape happens:
+
+| `SUBSTACKER_SCRAPE` | Who scrapes | What the `publish` workflow does |
+|---|---|---|
+| `local` (the default, also when the variable is unset) | A machine you control runs `npm run scrape:local` (your laptop, or a small server with a timer) and pushes the backup to the `content` branch. | Skips the scrape and the backup commit, checks that `content` holds posts, builds the shell and the served files from it and deploys. |
+| `ci` | The workflow, through the feed directly or through the relay (`relayUrl`, step 3a). | Scrapes, commits the backup, builds and deploys. Use it only if a network of yours reaches the feed from Actions. |
+
+The relay and the scrape-in-CI path stay in the repository and keep working; they are simply not the default. The mode logic is in `scripts/publish.mjs` (the workflow only passes the variable), and `npm run publish:dry-run -- --mode local` or `--mode ci` shows each.
+
+A push to `content` cannot start the workflow by itself: workflow files are read from the pushed branch, and `content` holds only data (never add workflow files to it). So after pushing a new commit, `scrape:local` asks GitHub to run `publish.yml` on `main` through the REST API (`workflow_dispatch`), if it has a token (step 3c). The daily `schedule` in the workflow stays as the fallback: it rebuilds from whatever is on `content`, so a failed or missing dispatch only delays the deploy.
 
 ## 1. Fork and reset the `content` branch
 
 The `content` branch holds the generated backup of **the original author's** publication. A fork of this repository, or a copy made from a clone, may carry it over. Reset it before the first run, or your site would serve someone else's posts alongside yours.
 
-If your fork has no `content` branch, skip this step: the workflow creates an empty one.
+If your fork has no `content` branch, skip this step: create it with `npm run scrape:local -- --init` (step 3c), or let the workflow create an empty one.
 
 ```bash
 git checkout --orphan content-reset
@@ -30,10 +43,10 @@ Settings are not stored in the repository, so no publication is named in the cod
 | `actions` | Subset of `comment`, `share`. Empty by default. |
 | `utmSource` | Label for Substack's statistics. Default `substacker`. |
 | `hidden` | Slugs left out of every reader. The backup still keeps them. |
-| `relayUrl` | Optional. The address of your deployed relay (step 3a), needed if Substack refuses GitHub's runners. Must be https: the secret travels with every request. |
+| `relayUrl` | Optional, `ci` mode only. The address of your deployed relay (step 3a). Must be https: the secret travels with every request. |
 | `maxConcurrentDownloads` | Optional, 1 to 8, default 4. Image downloads in flight at once (never more than 2 per host). |
 
-**In CI:** Settings, Secrets and variables, Actions, Variables. Create `SUBSTACKER_CONFIG` whose value is your configuration as JSON, shaped like the example. A variable is not secret; anyone with access to the repository settings can read it. If you use the relay, its shared secret goes in an Actions *secret*, never in this variable.
+**In CI:** Settings, Secrets and variables, Actions, Variables. Create `SUBSTACKER_CONFIG` whose value is your configuration as JSON, shaped like the example (the workflow's build needs `feedName` and the other display settings even in `local` mode). A variable is not secret; anyone with access to the repository settings can read it. If you use the relay, its shared secret goes in an Actions *secret*, never in this variable. Never put a token in this document or in `substacker.config.local.json`.
 
 **Locally:** copy the example to `substacker.config.local.json` (gitignored) and edit it. The environment variable `SUBSTACKER_CONFIG`, if set, takes precedence over the file.
 
@@ -42,11 +55,11 @@ Settings are not stored in the repository, so no publication is named in the cod
 - Actions start disabled on a fork: open the Actions tab and enable them.
 - Settings, Pages, Source: GitHub Actions.
 - The workflow deploys through the `github-pages` environment, which by default only accepts deployments from `main`; run it from `main`.
-- Run the `publish` workflow once by hand. After that it runs daily and on every push to `main`.
+- In `local` mode, do step 3c first (the workflow refuses to deploy an empty backup and says so), then run the `publish` workflow once by hand. After that it runs daily, on every push to `main` and whenever `scrape:local` dispatches it.
 
-## 3a. The relay (if Substack refuses GitHub's runners)
+## 3a. The relay (`ci` mode only, and only if it helps on your network)
 
-Substack may answer HTTP 403 to requests from GitHub's runners. If a run of the `publish` workflow fails with `feed fetch failed: HTTP 403` and no `relayUrl` is set, deploy the relay, a small Cloudflare Worker (`apps/relay`, free tier) that fetches the feed for the scraper. It is not needed if the runners reach the feed directly.
+Substack answers HTTP 403 to requests from GitHub's runners. The relay, a small Cloudflare Worker (`apps/relay`, free tier), fetches the feed for the scraper in `ci` mode. In the probe it did not help: Substack answered 429 to the Cloudflare network. It is kept for networks where it does work, and is not needed in `local` mode or if the runners reach the feed directly.
 
 **What it does.** It answers `GET <relayUrl>?url=<feed address>` for callers that send the header `x-relay-secret: <secret>`, compared in constant time with the Worker secret `RELAY_SECRET`. It only fetches `https` addresses on the one host in the Worker variable `ALLOWED_HOST`, refuses any redirect to another host, caps the body at 10 MB and passes the status and body through. Errors it generates itself: 401 (secret missing or wrong), 403 (another host, or a redirect to one), 405 (not GET), 400 (no or bad `url`), 502 (upstream failed, too many redirects, body too large), 500 (relay not configured). Those carry an `x-relay-error` header naming the reason, so a caller can tell the relay's own 403 from a 403 passed through from the publication, and a `Retry-After` header from upstream is forwarded so the scraper can honour a rate limit. It identifies itself with `User-Agent: substacker-relay/<version>`; it does not pretend to be a browser.
 
@@ -80,7 +93,7 @@ npx wrangler secret put RELAY_SECRET
 
 When `relayUrl` is set the scraper requires `SUBSTACKER_RELAY_SECRET` and fetches only the feed through the relay; images are fetched directly, since they come from several hosts.
 
-**Probe result:** GitHub-hosted runners get HTTP 403 from the feed whatever user agent they send, which is why the relay exists. **Unverified:** whether Substack accepts requests that come from Cloudflare's network is not known until you try. After deploying, run the `publish` workflow by hand. If the feed fetch still fails with 403 (now reported without the `relayUrl` hint), the relay does not help from that network and another route is needed.
+**Probe result:** GitHub-hosted runners get HTTP 403 from the feed whatever user agent they send, and the relay got HTTP 429. That is why `local` is the default mode. Networks change; to try the relay again, set `SUBSTACKER_SCRAPE` to `ci`, deploy the relay and run the `publish` workflow by hand. If the feed fetch still fails, set the variable back to `local`.
 
 ## 3b. How the scraper treats the network and images
 
@@ -89,6 +102,93 @@ When `relayUrl` is set the scraper requires `SUBSTACKER_RELAY_SECRET` and fetche
 **Limits and safety.** A request times out after 30 s and a download is cut off while streaming at 50 MB (10 MB for the feed). Only https addresses are fetched. Every redirect hop (at most 5) is checked again, and a name is resolved once, inside the connection, so the connection goes to the address that was checked: loopback, private (RFC 1918), shared (100.64.0.0/10), link-local (including 169.254.169.254), unique-local and unspecified addresses, IPv4-mapped IPv6 and decimal, hex or octal forms of them are refused, which stops a hostile feed item from making the runner read an internal service. A refused image counts as a failed download. Residual risk: this relies on Node's `lookup` hook of `http.request`, tested here against a local server and a stub resolver but not against a live rebinding attack; a proxy configured around Node, or an `https` address that is itself public but forwards inwards, is outside what the scraper can see. The environment variable `SUBSTACKER_UNSAFE_ALLOW_PRIVATE_NETWORK=1` turns the address and https checks off for the test suites and the publish dry run, which serve a fixture feed from loopback. It is not part of the configuration; never set it in the workflow.
 
 **SVG images** are kept, but sanitized before they are stored (and again when the build copies them): DOMPurify's SVG profile removes script, event handlers, `foreignObject` and animation; on top of that every `href` other than a `#fragment` or a raster `data:image/` is removed, and so are styles that contain `url(`, `@import`, escapes or `expression(`; the `<?xml-stylesheet` instruction and any doctype or entity are dropped by re-serialising only the `<svg>` element. An SVG with nothing valid left is a failed download, retried next run. An SVG already stored is not downloaded again.
+
+## 3c. Local mode: scrape on a machine you control
+
+`npm run scrape:local` (`scripts/scrape-local.mjs`) does this on the machine that runs it, in order:
+
+1. Fetches `origin/content` and keeps a git worktree of it at `./content` (gitignored): created on the first run, fast-forwarded on later ones. A worktree with uncommitted changes is refused, not touched; nothing is ever reset, discarded or force-pushed.
+2. Runs the built scraper into it, stages `raw/` and `images/` and commits only if something changed (`backup: <n> new or changed items, <m> images`, with your own git identity).
+3. Pushes `content` (a plain push; if it is rejected because another machine pushed first, it fetches, merges and tries once more, then fails).
+4. After pushing a new commit, asks GitHub to run the `publish` workflow, if a token is set. A failure here is a warning, never an error.
+5. Prints one summary line. Exit codes: 0 done (including nothing new), 1 failure, 2 usage error or another run in progress. A lock in the repository's `.git` directory stops two runs from overlapping; a lock left by a dead process or older than six hours is taken over.
+
+Options: `--init` (create the empty orphan `content` branch on origin, once), `--dry-run` (scrape and commit in `./content`, push nothing, dispatch nothing; a later real run pushes that commit), `--no-dispatch`.
+
+**First time**, on the machine that will scrape:
+
+```bash
+git clone https://github.com/<you>/<your-fork>.git && cd <your-fork>
+npm ci && npm run build
+cp substacker.config.example.json substacker.config.local.json   # edit feedUrl and feedName; gitignored
+git config user.name "Your Name" && git config user.email "you@example.com"   # if not set globally
+npm run scrape:local -- --init --no-dispatch     # creates origin/content if missing, then the first backup
+```
+
+Then protect `content` (step 4), enable Pages (step 3), set the `SUBSTACKER_CONFIG` variable (step 2), and run the `publish` workflow by hand once. Do the one-time reset of step 1 *before* the ruleset. The machine needs credentials to push to your repository that work unattended (an SSH key or a credential helper); the dispatch token below is a separate thing.
+
+**The dispatch token.** Create a fine-grained personal access token (GitHub, Settings, Developer settings, Personal access tokens, Fine-grained tokens): Resource owner yourself, Repository access *Only select repositories* and just this repository, repository permissions **Actions: Read and write** (this is what starts a workflow run) and **Contents: Read and write** (needed only if you also use the token as the HTTPS credential for the push; Metadata read is added automatically), and an expiry (90 days is reasonable; put the date in your calendar). The script reads it from `SUBSTACKER_DISPATCH_TOKEN` (or `GITHUB_TOKEN` or `GH_TOKEN`), sends it only to `api.github.com` and never prints it. The repository is taken from the `origin` remote (https or ssh form); `SUBSTACKER_REPO=owner/repo` overrides it. Without a token everything still works and the deploy waits for the daily schedule. When it expires you get a warning (HTTP 401) and the same fallback.
+
+Keep the token out of the configuration document (`SUBSTACKER_CONFIG`, `substacker.config.local.json`) and out of the shell history: put it in a file only you can read, outside the repository, and let the service or cron job load it.
+
+```bash
+mkdir -p ~/.config/substacker && umask 077
+read -rs -p "Token: " t && printf 'SUBSTACKER_DISPATCH_TOKEN=%s\n' "$t" > ~/.config/substacker/env; unset t
+```
+
+`read -s` neither echoes the token nor stores it in the history.
+
+**A Linux box with a systemd timer** (as your own user; `loginctl enable-linger $USER` lets user timers run when you are logged out). `~/.config/systemd/user/substacker-scrape.service`:
+
+```ini
+[Unit]
+Description=Back up the feed to the content branch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/substacker
+EnvironmentFile=%h/.config/substacker/env
+ExecStart=/usr/bin/node scripts/scrape-local.mjs
+```
+
+`~/.config/systemd/user/substacker-scrape.timer`:
+
+```ini
+[Unit]
+Description=Back up the feed daily
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now substacker-scrape.timer
+systemctl --user list-timers substacker-scrape.timer
+systemctl --user start substacker-scrape.service     # run it now
+```
+
+`Persistent=true` runs a missed run when the machine comes back. Set the hour before the workflow's own schedule (05:17 UTC) if you want the schedule to find fresh data; with a token the dispatch deploys right after the push anyway. Use the path to the `node` you installed (`command -v node`).
+
+**Or cron** (`crontab -e`):
+
+```cron
+17 4 * * * cd $HOME/substacker && set -a && . $HOME/.config/substacker/env && set +a && /usr/bin/node scripts/scrape-local.mjs >> $HOME/.cache/substacker-scrape.log 2>&1
+```
+
+**A laptop**: cron works the same on macOS and Linux, but it only fires while the laptop is awake. On macOS, a launchd agent with `StartCalendarInterval` (`~/Library/LaunchAgents/`, `ProgramArguments` running `node scripts/scrape-local.mjs` with `WorkingDirectory` set to the clone) runs a missed job when the Mac wakes. Or just run `npm run scrape:local` by hand when you remember; the feed carries the latest 20 items, so a gap of a few weeks of normal posting is still caught up.
+
+**How to check it worked.** The summary line says `pushed` and `deploy requested`; `git log origin/content -3` shows the `backup:` commit; the Actions tab shows a `publish` run started by `workflow_dispatch`; the site shows the new post. A timer: `journalctl --user -u substacker-scrape.service -n 30`.
+
+**If a day is missed** (laptop off, token expired, network down): nothing is lost. The feed carries the latest 20 items, so the next successful run stores every post published in the meantime, as long as fewer than 20 appeared. Meanwhile the daily workflow keeps rebuilding the site from `content`. If you were away through more than 20 posts, those older ones are only on Substack; the scraper never deletes, so what is on `content` stays.
+
+**Nothing deployment-specific is committed.** The feed address, the name and the token are in your gitignored config file, the `SUBSTACKER_CONFIG` variable and a private env file. The `content` branch holds only generated data, and no workflow file is ever put on it.
 
 ## 4. Protect the `content` branch
 
@@ -132,30 +232,34 @@ npm ci
 npm run build
 ```
 
-To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run `node packages/scraper/dist/bin/scrape.js --backup content` and `node packages/scraper/dist/bin/build.js --backup content --out site/content` (both accept `--help`). Run the built files by path, not with `npx substacker-scrape`: npm links a workspace's commands only after `npm run build`, and when one is missing `npx` would download and run a package of that name from the registry.
+To run the scraper and push its result, use `npm run scrape:local` (step 3c). To run the scraper by hand, create `substacker.config.local.json` (see step 2), have the `content` branch in `content/` (`npm run scrape:local -- --dry-run` sets up the worktree, or use an empty directory), then run `node packages/scraper/dist/bin/scrape.js --backup content` and `node packages/scraper/dist/bin/build.js --backup content --out site/content` (both accept `--help`). Run the built files by path, not with `npx substacker-scrape`: npm links a workspace's commands only after `npm run build`, and when one is missing `npx` would download and run a package of that name from the registry.
 
 ## Repository variables and secrets
 
 | Name | Kind | Used by |
 |---|---|---|
 | `SUBSTACKER_CONFIG` | Actions variable | publish workflow; the configuration JSON (step 2) |
-| `SUBSTACKER_RELAY_SECRET` | Actions secret | only if you use `relayUrl`; sent to the relay as the `x-relay-secret` header, and the same value as the Worker's `RELAY_SECRET` |
+| `SUBSTACKER_SCRAPE` | Actions variable | publish workflow; `local` (default) or `ci` (see "Two modes") |
+| `SUBSTACKER_RELAY_SECRET` | Actions secret | only in `ci` mode with `relayUrl`; sent to the relay as the `x-relay-secret` header, and the same value as the Worker's `RELAY_SECRET` |
+| `SUBSTACKER_DISPATCH_TOKEN` | Environment of the scraping machine, not a repository setting | `scrape:local`; the fine-grained token that starts the workflow (step 3c). `GITHUB_TOKEN` and `GH_TOKEN` are read too. |
+| `SUBSTACKER_REPO` | Same | optional `owner/repo` for the dispatch when `origin` is not a github.com address |
 
 CI (`.github/workflows/ci.yml`) needs neither: its tests use fixtures and no real feed.
 
 ## What the workflow does, and a dry run
 
-`publish.yml` scrapes into the `content` branch, commits the backup only if it changed, builds the shell and the served files into one site, checks its size (fails above 800 MB) and deploys it. Every one of those steps is a subcommand of `scripts/publish.mjs` (`scrape`, `commit`, `shell`, `content`, `site`, `size`), and the dry run calls the same functions, so the two cannot drift. To see the steps locally without pushing anything:
+In `local` mode (the default) `publish.yml` checks that `content` holds posts (if not, it fails and says to run `npm run scrape:local -- --init`, rather than deploy an empty site), builds the shell and the served files into one site, checks its size (fails above 800 MB) and deploys it. In `ci` mode it first scrapes into the `content` branch and commits the backup only if it changed. Every one of those steps is a subcommand of `scripts/publish.mjs` (`scrape`, `commit`, `check`, `shell`, `content`, `site`, `size`), the mode is read there, and the dry run calls the same functions, so the two cannot drift. To see the steps locally without pushing anything:
 
 ```bash
 npm run build
-npm run publish:dry-run                      # fixture feed served locally; prints what it would commit and deploy
-node scripts/publish-dry-run.mjs --workdir /tmp/dry   # run twice: the second run would commit nothing
+npm run publish:dry-run -- --mode ci         # fixture feed served locally; prints what it would commit and deploy
+npm run publish:dry-run -- --mode local      # no scrape, nothing to commit; still lists the files it would deploy
+node scripts/publish-dry-run.mjs --mode ci --workdir /tmp/dry   # run twice: the second run would commit nothing
 ```
 
 ## 5. If the schedule lapses
 
-GitHub disables scheduled workflows after 60 days without repository activity. If the daily run stops, re-enable it in the Actions tab or run it by hand. Behaviour with only the bot's own commits is checked in the plan's final checklist.
+GitHub disables scheduled workflows after 60 days without repository activity. If the daily run stops, re-enable it in the Actions tab or run it by hand. In `local` mode, whether your pushes to `content` keep the schedule enabled is not known; it is on the plan's final checklist. Check the Actions tab now and then.
 
 ## Serving the shell under a path
 
