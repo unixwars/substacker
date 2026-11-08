@@ -22,7 +22,7 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 | `packages/core` | The content contract and the pure logic (`substacker-core`, the only distributed package). |
 | `packages/scraper` | Reads the feed and writes the content files (`substacker-scrape`, `substacker-build`). |
 | `apps/shell` | The static PWA reader with its own service worker. |
-| `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`, `build-shell.mjs`, `site-size.mjs`, `publish-dry-run.mjs`). |
+| `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`) and the publish steps themselves (`publish.mjs`, used by the workflow and by `publish-dry-run.mjs`). |
 | `assets/` | Source artwork for the icons (`icon.webp`, `icon.svg`); `npm run icons -w substacker-shell` regenerates the PNGs in `apps/shell/public`. |
 | `apps/relay` | A Cloudflare Worker that relays the feed fetch, needed only if Substack refuses GitHub's runners. Deploy steps are in [docs/setup.md](docs/setup.md). |
 | `content` branch | The generated backup. Orphan branch, no force pushes. |
@@ -73,9 +73,9 @@ There is no database or container here, so "integration" means: a fixture feed s
 
 ## Publishing
 
-[`.github/workflows/publish.yml`](.github/workflows/publish.yml) runs daily, on demand and on every push to `main`, with a `publish` concurrency group that never cancels a run in progress and permissions for `contents`, `pages` and `id-token`. It creates the orphan `content` branch if it is missing, checks out `main` and `content`, runs `substacker-scrape` (configuration from the `SUBSTACKER_CONFIG` variable, the relay secret from the `SUBSTACKER_RELAY_SECRET` secret), commits the backup with plain `git` only when something changed, builds the shell with `config.json` written from the resolved configuration, derives the served files with `substacker-build` into `content/` of the same site, reports the site size (failing above 800 MB) and deploys one Pages site. If Substack answers 403 and no `relayUrl` is set, the scrape fails with a message pointing to the relay (see [docs/setup.md](docs/setup.md)).
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml) runs daily, on demand and on every push to `main`, with a `publish` concurrency group that never cancels a run in progress and permissions for `contents`, `pages` and `id-token`. It creates the orphan `content` branch if it is missing, checks out `main` and `content`, runs the scraper (`node scripts/publish.mjs scrape`; configuration from the `SUBSTACKER_CONFIG` variable, the relay secret from the `SUBSTACKER_RELAY_SECRET` secret), commits the backup with plain `git` only when something changed, builds the shell with `config.json` written from the resolved configuration, derives the served files with the built `build.js` into `content/` of the same site, reports the site size (failing above 800 MB) and deploys one Pages site. If Substack answers 403 and no `relayUrl` is set, the scrape fails with a message pointing to the relay (see [docs/setup.md](docs/setup.md)).
 
-To see what a run would do without pushing anything, run `npm run build` then `npm run publish:dry-run`: it executes the same steps against the fixture feed, served locally, and lists the backup files it would commit (none on a second run with the same `--workdir`) and the files it would deploy. `test:integration` covers it.
+To see what a run would do without pushing anything, run `npm run build` then `npm run publish:dry-run`: it calls the same functions (`scripts/publish.mjs`) against the fixture feed, served locally, and lists the backup files it would commit (none on a second run with the same `--workdir`) and the files it would deploy. `test:integration` covers it.
 
 A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which packs `substacker-core` and attaches the tarball to a GitHub Release.
 

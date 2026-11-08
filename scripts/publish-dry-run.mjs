@@ -2,18 +2,21 @@
 // HTTP server, so nothing reaches the network) and reports what the workflow would
 // commit to the `content` branch and what it would deploy. Nothing is pushed.
 //
-//   node scripts/publish-dry-run.mjs [--workdir <dir>] [--json]
+//   node scripts/publish-dry-run.mjs [--workdir <dir>] [--feed <file>] [--json]
 //
 // With --workdir the state persists, so a second run shows that nothing new would be
 // committed. Without it a temporary directory is used and removed. Needs
-// `npm run build` first (the scraper CLI and the shell build).
+// `npm run build` first (the scraper CLI and the shell build). The steps are the ones in
+// scripts/publish.mjs, the same code the workflow runs. --feed serves another feed file
+// in place of the fixture.
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { SITE_LIMIT_BYTES, dirSize, listFiles, root, scraperDist } from "./site.mjs";
+import { commitBackupStep, scrapeStep, siteStep, sizeStep } from "./publish.mjs";
+import { SITE_LIMIT_BYTES, dirSize, listFiles, root } from "./site.mjs";
 
 const run = promisify(execFile);
 const args = process.argv.slice(2);
@@ -24,7 +27,8 @@ mkdirSync(work, { recursive: true });
 const say = (m) => { if (!json) console.log(m); };
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "base64");
-const fixture = readFileSync(join(root, "packages", "scraper", "test", "fixtures", "feed.xml"), "utf8");
+const feedFile = args.includes("--feed") ? resolve(args[args.indexOf("--feed") + 1] ?? "") : join(root, "packages", "scraper", "test", "fixtures", "feed.xml");
+const fixture = readFileSync(feedFile, "utf8");
 
 // The fixture feed, with every image host pointed at this server.
 let origin = "";
@@ -51,7 +55,6 @@ const config = { feedUrl: `${origin}/feed`, feedName: "Example Newsletter", acti
 const env = { ...process.env, SUBSTACKER_CONFIG: JSON.stringify(config) };
 const backup = join(work, "content");
 const site = join(work, "site");
-const node = (script, ...a) => run("node", [script, ...a], { cwd: root, env, maxBuffer: 64 * 1024 * 1024 });
 const git = (...a) => run("git", ["-C", backup, "-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com", ...a]);
 
 try {
@@ -65,22 +68,20 @@ try {
   }
 
   say("1. scrape into the backup");
-  const scrape = await node(join(scraperDist, "bin", "scrape.js"), "--backup", backup);
+  const scrape = await scrapeStep({ backup, env });
   say(`   ${scrape.stdout.trim()}`);
 
   say("2. files the backup commit would hold");
-  await git("add", "-A", "raw", "images").catch(() => undefined);
-  const staged = (await git("diff", "--cached", "--name-only")).stdout.split("\n").filter(Boolean).sort();
-  if (staged.length > 0) await git("commit", "-q", "-m", "Back up new posts (dry run)");
+  const staged = await commitBackupStep({ backup, push: false });
   say(staged.length === 0 ? "   nothing to commit" : staged.map((f) => `   ${f}`).join("\n"));
 
   say("3. build the shell, then the served content, into one site");
-  await node(join(root, "scripts", "build-shell.mjs"), "--out", site);
-  await node(join(scraperDist, "bin", "build.js"), "--backup", backup, "--out", join(site, "content"));
+  await siteStep({ backup, out: site, env });
 
   say("4. site size");
-  const size = await node(join(root, "scripts", "site-size.mjs"), site).catch((e) => { throw new Error(e.stderr || e.message); });
-  say(`   ${size.stdout.trim()}`);
+  const size = sizeStep({ out: site });
+  if (!size.ok) throw new Error("the site is over the Pages budget");
+  say(`   ${size.summary}`);
 
   const deploy = listFiles(site);
   say(`5. files it would deploy (${deploy.length})`);

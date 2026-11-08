@@ -112,7 +112,7 @@ npm ci
 npm run build
 ```
 
-To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run `npx substacker-scrape --backup content` and `npx substacker-build --backup content --out site/content` (both accept `--help`).
+To run the scraper locally, create `substacker.config.local.json` (see step 2), check out the `content` branch into `content/` (`git worktree add content content`, or an empty directory for a first run), then run `node packages/scraper/dist/bin/scrape.js --backup content` and `node packages/scraper/dist/bin/build.js --backup content --out site/content` (both accept `--help`). Run the built files by path, not with `npx substacker-scrape`: npm links a workspace's commands only after `npm run build`, and when one is missing `npx` would download and run a package of that name from the registry.
 
 ## Repository variables and secrets
 
@@ -125,7 +125,7 @@ CI (`.github/workflows/ci.yml`) needs neither: its tests use fixtures and no rea
 
 ## What the workflow does, and a dry run
 
-`publish.yml` scrapes into the `content` branch, commits the backup only if it changed, builds the shell and the served files into one site, checks its size (fails above 800 MB) and deploys it. To see its steps locally without pushing anything:
+`publish.yml` scrapes into the `content` branch, commits the backup only if it changed, builds the shell and the served files into one site, checks its size (fails above 800 MB) and deploys it. Every one of those steps is a subcommand of `scripts/publish.mjs` (`scrape`, `commit`, `shell`, `content`, `site`, `size`), and the dry run calls the same functions, so the two cannot drift. To see the steps locally without pushing anything:
 
 ```bash
 npm run build

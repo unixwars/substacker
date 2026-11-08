@@ -49,38 +49,27 @@ jobs:
       - run: npm ci
       - run: npm run build -w substacker-core -w substacker-scraper
 
-      # Idempotent: a run with nothing new writes nothing. If Substack answers 403
-      # from this network, the step fails and says to set up the relay.
+      # The steps live in scripts/publish.mjs, which the dry run (npm run publish:dry-run)
+      # runs too, so the two cannot drift. The scraper is run by path, never through npx.
+      # Idempotent: a run with nothing new writes nothing. If Substack answers 403 from
+      # this network, the step fails and says to set up the relay.
       - name: Scrape the feed into the backup
-        run: npx substacker-scrape --backup content
+        run: node scripts/publish.mjs scrape --backup content
         env:
           SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
           SUBSTACKER_RELAY_SECRET: ${{ secrets.SUBSTACKER_RELAY_SECRET }}
 
       - name: Commit the backup if it changed
-        working-directory: content
-        run: |
-          git add -A raw images
-          if git diff --cached --quiet; then
-            echo "Nothing new to back up."
-          else
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m "Back up new and edited posts"
-            git push origin HEAD:content
-          fi
+        run: node scripts/publish.mjs commit --backup content --push
 
       # One Pages site: the shell at the root (config.json written from the resolved
       # configuration), the served files derived from the backup under /content/.
-      - name: Build the shell
-        run: node scripts/build-shell.mjs --out site
-        env:
-          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
-      - name: Derive the served content
-        run: npx substacker-build --backup content --out site/content
+      - name: Build the shell and derive the served content
+        run: node scripts/publish.mjs site --backup content --out site
         env:
           SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
       - name: Report the site size (fails above 800 MB)
-        run: node scripts/site-size.mjs site
+        run: node scripts/publish.mjs size --out site
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

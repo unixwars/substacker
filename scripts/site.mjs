@@ -3,6 +3,7 @@
 // content under content/). Plain Node, no dependencies; run `npm run build` first,
 // it uses the built scraper.
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,16 +43,19 @@ export function writeFiles(dir, files) {
  * `base` defaults to a relative base, which works under any path. `scratchDir` holds
  * the config the build reads.
  */
-export function buildShell({ outDir, shellConfig, scratchDir, base = "./", quiet = false }) {
+export function buildShell({ outDir, shellConfig, scratchDir, base = "./", quiet = false, env = process.env }) {
   const configPath = join(scratchDir, "config.json");
   const text = `${JSON.stringify(shellConfig, null, 2)}\n`;
   mkdirSync(scratchDir, { recursive: true });
   writeFileSync(configPath, text);
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", ["vite", "build", "--outDir", outDir, "--emptyOutDir", "--logLevel", "warn"], {
+    // Vite's own entry file, found from the shell package: no `npx`, so nothing is
+    // ever fetched from the registry.
+    const vite = join(dirname(createRequire(join(shellDir, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
+    const child = spawn(process.execPath, [vite, "build", "--outDir", outDir, "--emptyOutDir", "--logLevel", "warn"], {
       cwd: shellDir,
       stdio: quiet ? ["ignore", "ignore", "inherit"] : "inherit",
-      env: { ...process.env, SUBSTACKER_BASE: base, SUBSTACKER_SHELL_CONFIG: configPath },
+      env: { ...env, SUBSTACKER_BASE: base, SUBSTACKER_SHELL_CONFIG: configPath },
     });
     child.on("error", reject);
     child.on("exit", (code) => {
@@ -75,4 +79,12 @@ export function dirSize(dir) {
 
 export function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+}
+
+/** Size of the assembled site against the Pages budget. */
+export function siteSize(dir) {
+  const bytes = dirSize(dir);
+  const mb = (bytes / (1024 * 1024)).toFixed(1);
+  const summary = `Site size: ${mb} MB in ${listFiles(dir).length} files (limit ${SITE_LIMIT_BYTES / (1024 * 1024)} MB)`;
+  return { bytes, summary, ok: bytes <= SITE_LIMIT_BYTES };
 }
