@@ -15,7 +15,11 @@ function feedUrlFromConfig() {
   const raw = process.env.SUBSTACKER_CONFIG?.trim()
     || (() => { try { return readFileSync("substacker.config.local.json", "utf8"); } catch { return ""; } })();
   if (!raw) throw new Error("No SUBSTACKER_CONFIG and no substacker.config.local.json");
-  const url = JSON.parse(raw).feedUrl;
+  let cfg;
+  try { cfg = JSON.parse(raw); } catch {
+    throw new Error('SUBSTACKER_CONFIG must be JSON like {"feedUrl": "https://<name>.substack.com/feed"}, not a bare URL');
+  }
+  const url = cfg.feedUrl;
   if (typeof url !== "string") throw new Error('Configuration has no "feedUrl"');
   return url;
 }
@@ -45,7 +49,9 @@ function imageUrls(xml) {
   const text = xml.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'");
   const urls = new Set();
   for (const m of text.matchAll(/(?:src|srcset|href)=["']([^"']+)["']/g)) {
-    for (const part of m[1].split(",")) {
+    // Candidates in a srcset are separated by a comma before "http"; Substack CDN
+    // URLs contain commas themselves, so a plain split(",") would truncate them.
+    for (const part of m[1].split(/,\s*(?=https?:\/\/)/)) {
       const u = part.trim().split(/\s+/)[0].replaceAll("&amp;", "&");
       if (/^https?:\/\//.test(u) && /\.(png|jpe?g|gif|webp|avif)(\?|$)|\/image\/fetch\/|post-media/i.test(u)) urls.add(u);
     }
@@ -77,6 +83,9 @@ async function main() {
   for (const u of imgs) {
     const k = imageKind(new URL(u).host);
     if (!byKind.has(k)) byKind.set(k, u);
+    // Substack wraps its S3 originals inside CDN URLs; fetch one directly as well.
+    const wrapped = u.match(/\/(https%3A%2F%2F[^/?]*amazonaws\.com[^/?]*)/i);
+    if (wrapped && !byKind.has("Substack S3")) byKind.set("Substack S3", decodeURIComponent(wrapped[1]));
   }
   for (const kind of ["Substack CDN", "Substack S3", "third party"]) {
     const u = byKind.get(kind);
