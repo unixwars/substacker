@@ -19,7 +19,7 @@
     "lint": "eslint .",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "npm run build && vitest run --config vitest.integration.config.ts",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
     "publish:dry-run": "node scripts/publish-dry-run.mjs"
   },
