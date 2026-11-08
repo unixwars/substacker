@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ContractError, parseDocs, parseIndex, parsePost } from "./contract.js";
 import type { Entry, Index, Post } from "./contract.js";
 import { neighbours } from "./post.js";
@@ -54,6 +54,17 @@ function toFailure(e: unknown): { status: "error"; reason: ErrorReason; error: E
   return { status: "error", reason: "network", error };
 }
 
+/**
+ * The newest value, readable from effects without being one of their dependencies. A host
+ * that passes an inline `fetch` function gets a new one on every render; as a dependency
+ * it would reload (and re-render) forever.
+ */
+function useLatest<T>(value: T): { readonly current: T } {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
+
 /** Run `load` whenever `deps` change; stale results are ignored. */
 function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[], enabled = true): Loadable<{ value: T }> {
   const [state, setState] = useState<Loadable<{ value: T }>>({ status: "loading" });
@@ -76,7 +87,8 @@ const loadIndex = async (base: string, fetchFn: FetchFn): Promise<Index> =>
   parseIndex(await fetchJson(fetchFn, joinUrl(base, "index.json")));
 
 export function useFeedIndex(base: string, fetchFn: FetchFn = globalThis.fetch): Loadable<{ index: Index }> {
-  const s = useLoad(() => loadIndex(base, fetchFn), [base, fetchFn]);
+  const latest = useLatest(fetchFn);
+  const s = useLoad(() => loadIndex(base, latest.current), [base]);
   return s.status === "ready" ? { status: "ready", index: s.value } : s;
 }
 
@@ -86,16 +98,17 @@ export function useSearch(
   fetchFn: FetchFn = globalThis.fetch,
 ): Loadable<{ results: Entry[] }> {
   const active = query.trim() !== "";
+  const latest = useLatest(fetchFn);
   // The index and the search file are fetched on first use, then reused for later queries.
   const data = useLoad(
     async () => {
       const [index, docs] = await Promise.all([
-        loadIndex(base, fetchFn),
-        fetchJson(fetchFn, joinUrl(base, "search.json")).then(parseDocs),
+        loadIndex(base, latest.current),
+        fetchJson(latest.current, joinUrl(base, "search.json")).then(parseDocs),
       ]);
       return { index, searcher: createSearcher(docs) as Searcher };
     },
-    [base, fetchFn],
+    [base],
     active,
   );
   const results = useMemo(() => {
@@ -117,14 +130,15 @@ export function usePost(
   slug: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Loadable<{ post: Post; previous?: Entry; next?: Entry }> {
+  const latest = useLatest(fetchFn);
   const s = useLoad(
     async () => {
-      const index = await loadIndex(base, fetchFn);
+      const index = await loadIndex(base, latest.current);
       if (!index.posts.some((p) => p.slug === slug)) throw new ReaderError("not-found", `no post ${slug}`);
-      const post = parsePost(await fetchJson(fetchFn, joinUrl(base, `posts/${encodeURIComponent(slug)}.json`)));
+      const post = parsePost(await fetchJson(latest.current, joinUrl(base, `posts/${encodeURIComponent(slug)}.json`)));
       return { post, ...neighbours(index, slug) };
     },
-    [base, slug, fetchFn],
+    [base, slug],
   );
   return s.status === "ready" ? { status: "ready", ...s.value } : s;
 }

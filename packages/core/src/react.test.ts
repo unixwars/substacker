@@ -182,3 +182,46 @@ describe("usePost", () => {
     expect(calls).toContain(`${BASE}/posts/caf%C3%A9.json`);
   });
 });
+
+describe("an inline fetch function", () => {
+  const routes = { [`${BASE}/index.json`]: index, [`${BASE}/posts/b.json`]: post("b"), [`${BASE}/search.json`]: docs };
+  it("does not refetch on every render in useFeedIndex", async () => {
+    const { fn, calls } = fakeFetch(routes);
+    const h = await renderHook(() => useFeedIndex(BASE, (...a: Parameters<typeof fetch>) => fn(...a)), undefined);
+    await h.settle();
+    await h.rerender(undefined);
+    await h.rerender(undefined);
+    await h.settle();
+    expect(h.result.current.status).toBe("ready");
+    expect(calls).toEqual([`${BASE}/index.json`]);
+  });
+  it("does not refetch on every render in usePost", async () => {
+    const { fn, calls } = fakeFetch(routes);
+    const h = await renderHook(() => usePost(BASE, "b", (...a: Parameters<typeof fetch>) => fn(...a)), undefined);
+    await h.settle();
+    await h.rerender(undefined);
+    await h.settle();
+    expect(h.result.current.status).toBe("ready");
+    expect(calls).toEqual([`${BASE}/index.json`, `${BASE}/posts/b.json`]);
+  });
+  it("does not refetch on every render in useSearch, and uses the latest function for a later load", async () => {
+    const { fn, calls } = fakeFetch(routes);
+    const h = await renderHook(({ q }: { q: string }) => useSearch(BASE, q, (...a: Parameters<typeof fetch>) => fn(...a)), { q: "tomato" });
+    await h.settle();
+    await h.rerender({ q: "tomato soup" });
+    await h.settle();
+    expect(h.result.current.status).toBe("ready");
+    expect(calls.sort()).toEqual([`${BASE}/index.json`, `${BASE}/search.json`]);
+  });
+  it("uses the newest function when the base changes", async () => {
+    const first = fakeFetch(routes);
+    const second = fakeFetch({ "https://other.example/index.json": index });
+    let fn = first.fn;
+    const h = await renderHook(({ base }: { base: string }) => useFeedIndex(base, (...a: Parameters<typeof fetch>) => fn(...a)), { base: BASE });
+    await h.settle();
+    fn = second.fn;
+    await h.rerender({ base: "https://other.example" });
+    await h.settle();
+    expect(second.calls).toEqual(["https://other.example/index.json"]);
+  });
+});
