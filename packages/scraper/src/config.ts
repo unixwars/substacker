@@ -11,6 +11,8 @@ export const ConfigSchema = z.object({
   actions: z.array(z.enum(["comment", "share"])).default([]),
   utmSource: z.string().min(1).default("substacker"),
   hidden: z.array(z.string()).default([]),
+  /** Image downloads in flight at once (at most 2 per host). */
+  maxConcurrentDownloads: z.number().int().min(1).max(8).optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

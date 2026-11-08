@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { Config } from "./config.js";
 import { imageUrls } from "./derive.js";
 import { parseFeed } from "./feed.js";
-import type { BackupReader, Change } from "./scrape.js";
-import { ScrapeError, scrape } from "./scrape.js";
+import type { BackupReader, Change, ScrapeDeps } from "./scrape.js";
+import { ScrapeError, scrape as realScrape } from "./scrape.js";
 import { feedXml, fixtureFeed } from "./test-support/feeds.js";
 
 const config: Config = { feedUrl: "https://example.substack.com/feed", feedName: "T", actions: [], utmSource: "substacker", hidden: [] };
+
+// No real waiting in tests: the pauses and backoffs are skipped.
+const scrape = (c: Config, d: ScrapeDeps) => realScrape(c, { sleep: async () => undefined, ...d });
 
 class Memory implements BackupReader {
   raw = new Map<string, string>();
@@ -193,5 +196,95 @@ describe("scrape through the relay", () => {
   });
   it("refuses to run without the secret", async () => {
     await expect(scrape(relayed, { fetch: fetcher("").fn, backup: new Memory(), env: {} })).rejects.toThrow(/SUBSTACKER_RELAY_SECRET/);
+  });
+});
+
+describe("scrape image hardening", () => {
+  const one = (body: string) => feedXml([{ title: "A", link: "https://example.substack.com/p/a", body }]);
+  const svgResponse = (svg: string) => () => respond(svg, { headers: { "content-type": "image/svg+xml" } });
+  const imageChange = (changes: Change[]) => changes.find((c) => c.kind === "image") as Extract<Change, { kind: "image" }> | undefined;
+
+  it("stores an SVG, sanitized", async () => {
+    const hostile = `<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script><use href="https://evil.test/x.svg#a"/><rect width="4" height="4"/></svg>`;
+    const f = fetcher(one('<img src="https://cdn.example.test/a.svg">'), false, svgResponse(hostile));
+    const img = imageChange(await scrape(config, { fetch: f.fn, backup: new Memory() }));
+    expect(img?.name).toMatch(/\.svg$/);
+    const text = new TextDecoder().decode(img?.data);
+    expect(text).toContain("<rect");
+    expect(text).not.toMatch(/script|onload|evil\.test|alert/);
+  });
+  it("treats an SVG with nothing valid left as a failed download, retried next run", async () => {
+    const logs: string[] = [];
+    const f = fetcher(one('<img src="https://cdn.example.test/a.svg">'), false, () => respond("<svg", { headers: { "content-type": "image/svg+xml" } }));
+    const backup = new Memory();
+    const changes = await scrape(config, { fetch: f.fn, backup, log: (m) => logs.push(m) });
+    expect(imageChange(changes)).toBeUndefined();
+    expect(logs.join("\n")).toMatch(/will retry next run/);
+  });
+  it("does not download a stored SVG again", async () => {
+    const f = fetcher(one('<img src="https://cdn.example.test/a.svg">'), false, svgResponse('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'));
+    const backup = new Memory();
+    backup.apply(await scrape(config, { fetch: f.fn, backup }));
+    const before = f.calls.length;
+    expect(await scrape(config, { fetch: f.fn, backup })).toEqual([]);
+    expect(f.calls.slice(before)).toEqual([config.feedUrl]);
+  });
+  it.each(["http://127.0.0.1/internal", "https://169.254.169.254/latest/meta-data", "https://2130706433/x", "https://[::ffff:7f00:1]/x", "ftp://example.test/x", "file:///etc/passwd"])(
+    "refuses to fetch %s and counts it as a failed download",
+    async (src) => {
+      const logs: string[] = [];
+      const f = fetcher(one(`<img src="${src}">`));
+      const changes = await scrape(config, { fetch: f.fn, backup: new Memory(), log: (m) => logs.push(m) });
+      expect(imageChange(changes)).toBeUndefined();
+      expect(f.calls).toEqual([config.feedUrl]);
+    },
+  );
+  it("refuses a redirect from a public image address to a private one", async () => {
+    const calls: string[] = [];
+    const fn = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === config.feedUrl) return respond(one('<img src="https://cdn.example.test/r">'));
+      return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } });
+    }) as typeof fetch;
+    const changes = await scrape(config, { fetch: fn, backup: new Memory() });
+    expect(imageChange(changes)).toBeUndefined();
+    expect(calls).toEqual([config.feedUrl, "https://cdn.example.test/r"]);
+  });
+  it("leaves a rate-limited host's images for the next run, post unlocalized, and logs once", async () => {
+    const body = [1, 2, 3].map((n) => `<img src="https://slow.example.test/${n}.png">`).join("") + '<img src="https://fine.example.test/ok.png">';
+    const logs: string[] = [];
+    const calls: string[] = [];
+    const fn = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === config.feedUrl) return respond(one(body));
+      if (url.includes("slow.")) return new Response("", { status: 429, headers: { "retry-after": "1" } });
+      return respond(PNG, { headers: { "content-type": "image/png" } });
+    }) as typeof fetch;
+    const changes = await scrape({ ...config, maxConcurrentDownloads: 1 }, { fetch: fn, backup: new Memory(), log: (m) => logs.push(m) });
+    expect(changes.filter((c) => c.kind === "image")).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("slow."))).toHaveLength(4);
+    expect(logs.filter((m) => /keeps answering 429/.test(m))).toHaveLength(1);
+  });
+  it("retries a feed that answers 503 a bounded number of times, then reports it", async () => {
+    let n = 0;
+    const fn = (async () => (n++, new Response("busy", { status: 503, headers: { "retry-after": "2" } }))) as typeof fetch;
+    await expect(scrape(config, { fetch: fn, backup: new Memory() })).rejects.toThrow(/HTTP 503/);
+    expect(n).toBe(4);
+  });
+  it("applies the same retry bound to the relay", async () => {
+    let n = 0;
+    const fn = (async () => (n++, new Response("busy", { status: 429 }))) as typeof fetch;
+    await expect(
+      scrape({ ...config, relayUrl: "https://relay.example.workers.dev" }, { fetch: fn, backup: new Memory(), env: { SUBSTACKER_RELAY_SECRET: "s" } }),
+    ).rejects.toThrow(/HTTP 429/);
+    expect(n).toBe(4);
+  });
+  it("sends a user agent that names this project", async () => {
+    let ua = "";
+    const fn = (async (_i: RequestInfo | URL, init?: RequestInit) => ((ua = new Headers(init?.headers).get("user-agent") ?? ""), respond(feedXml([]))) ) as typeof fetch;
+    await scrape(config, { fetch: fn, backup: new Memory() });
+    expect(ua).toMatch(/^substacker-scraper\//);
   });
 });

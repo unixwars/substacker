@@ -39,6 +39,20 @@ describe("build with an unusable raw item", () => {
   });
 });
 
+describe("build with a stored SVG", () => {
+  it("publishes it sanitized, and leaves out one that is not an SVG", () => {
+    seed(false);
+    writeFileSync(join(dir, "images", "aaaaaaaaaaaaaa.svg"), `<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><script>x()</script><rect/></svg>`);
+    writeFileSync(join(dir, "images", "bbbbbbbbbbbbbb.svg"), "<html>nope</html>");
+    const { files, warnings } = build(config, dir);
+    const svg = new TextDecoder().decode(files.get("images/aaaaaaaaaaaaaa.svg") as Uint8Array);
+    expect(svg).toContain("<rect");
+    expect(svg).not.toMatch(/script|onload/);
+    expect(files.has("images/bbbbbbbbbbbbbb.svg")).toBe(false);
+    expect(warnings.join("\n")).toMatch(/bbbbbbbbbbbbbb/);
+  });
+});
+
 describe("build", () => {
   it("writes valid served files", () => {
     seed(true);

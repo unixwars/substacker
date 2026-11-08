@@ -5,6 +5,7 @@ import type { Post } from "substacker-core";
 import type { DeriveOptions } from "./derive.js";
 import { buildIndex, derivePost } from "./derive.js";
 import type { Config } from "./config.js";
+import { sanitizeSvg } from "./svg.js";
 
 /** Served files by path relative to the served content root. */
 export type Files = Map<string, string | Uint8Array>;
@@ -45,9 +46,21 @@ export function build(config: Config, backupDir: string, opts: DeriveOptions = {
   }
   const built = buildIndex(posts, config.hidden, config.feedName);
   const { index, docs } = built;
-  const warnings = [...skipped, ...built.warnings];
+  const warnings: string[] = [];
   files.set("index.json", json(index));
   files.set("search.json", json(docs));
-  for (const name of imageNames) files.set(`images/${name}`, readFileSync(join(imagesDir, name)));
+  for (const name of imageNames) {
+    const data = readFileSync(join(imagesDir, name));
+    if (!name.endsWith(".svg")) {
+      files.set(`images/${name}`, data);
+      continue;
+    }
+    // Sanitized again here: a stored SVG may predate the scraper's sanitizing, or the branch
+    // may have been edited. Nothing executable is ever published from our own origin.
+    const safe = sanitizeSvg(data);
+    if (safe) files.set(`images/${name}`, safe);
+    else warnings.push(`left out images/${name}: not a usable SVG after sanitizing`);
+  }
+  warnings.unshift(...skipped, ...built.warnings);
   return { files, warnings };
 }

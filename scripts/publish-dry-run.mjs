@@ -52,7 +52,8 @@ writeFileSync(portFile, String(server.address().port));
 origin = `http://127.0.0.1:${server.address().port}`;
 
 const config = { feedUrl: `${origin}/feed`, feedName: "Example Newsletter", actions: [], utmSource: "substacker", hidden: [] };
-const env = { ...process.env, SUBSTACKER_CONFIG: JSON.stringify(config) };
+// The fixture server is on loopback, which the scraper refuses unless told (tests and this dry run only).
+const env = { ...process.env, SUBSTACKER_CONFIG: JSON.stringify(config), SUBSTACKER_UNSAFE_ALLOW_PRIVATE_NETWORK: "1" };
 const backup = join(work, "content");
 const site = join(work, "site");
 const git = (...a) => run("git", ["-C", backup, "-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com", ...a]);

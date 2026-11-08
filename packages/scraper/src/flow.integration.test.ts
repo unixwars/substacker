@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { diskBackup } from "./backup.js";
 import { runBuild, runScrape } from "./cli.js";
 import type { Config } from "./config.js";
+import { createPinnedFetch } from "./net.js";
 import { scrape } from "./scrape.js";
 import { fixtureFeed } from "./test-support/feeds.js";
 
@@ -45,7 +46,7 @@ beforeEach(() => {
   requested.length = 0;
   work = mkdtempSync(join(tmpdir(), "substacker-flow-"));
   config = { feedUrl: `${origin}/feed`, feedName: "Example Newsletter", actions: [], utmSource: "substacker", hidden: [] };
-  env = { SUBSTACKER_CONFIG: JSON.stringify(config) };
+  env = { SUBSTACKER_CONFIG: JSON.stringify(config), SUBSTACKER_UNSAFE_ALLOW_PRIVATE_NETWORK: "1" };
   vi.spyOn(console, "log").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
@@ -88,7 +89,7 @@ describe("scrape then build", () => {
     runBuild(["--backup", backup(), "--out", out()], env);
     const backupBefore = snapshot(backup());
     const outBefore = snapshot(out());
-    expect(await scrape(config, { fetch, backup: diskBackup(backup()) })).toEqual([]);
+    expect(await scrape(config, { fetch: createPinnedFetch({ allowPrivate: true }), allowPrivate: true, backup: diskBackup(backup()) })).toEqual([]);
     await runScrape(["--backup", backup()], env);
     runBuild(["--backup", backup(), "--out", out()], env);
     expect(snapshot(backup())).toBe(backupBefore);
@@ -114,9 +115,9 @@ describe("scrape then build", () => {
     const flaky: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url !== config.feedUrl) return new Response("no", { status: 500 });
-      return fetch(input, init);
+      return createPinnedFetch({ allowPrivate: true })(input, init);
     };
-    const first = await scrape(config, { fetch: flaky, backup: diskBackup(backup()), log: () => undefined });
+    const first = await scrape(config, { fetch: flaky, allowPrivate: true, backup: diskBackup(backup()), log: () => undefined });
     expect(first.every((c) => c.kind === "raw")).toBe(true);
     const { writeChanges } = await import("./backup.js");
     writeChanges(backup(), first);

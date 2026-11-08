@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { diskBackup, writeChanges } from "./backup.js";
 import { build } from "./build.js";
 import { loadConfig } from "./config.js";
+import { createPinnedFetch } from "./net.js";
 import { scrape } from "./scrape.js";
 
 function option(args: string[], name: string, fallback: string): string {
@@ -20,7 +21,10 @@ export async function runScrape(args: string[], env: Record<string, string | und
   }
   const dir = option(args, "--backup", "content");
   const config = loadConfig(env, readIfExists);
-  const changes = await scrape(config, { fetch, backup: diskBackup(dir), env, log: (m) => console.warn(m) });
+  // Only the test suites and the publish dry run set this (they serve a feed from loopback).
+  // It is an environment variable, not part of the configuration document.
+  const allowPrivate = env["SUBSTACKER_UNSAFE_ALLOW_PRIVATE_NETWORK"] === "1";
+  const changes = await scrape(config, { fetch: createPinnedFetch({ allowPrivate }), allowPrivate, backup: diskBackup(dir), env, log: (m) => console.warn(m) });
   writeChanges(dir, changes);
   const raws = changes.filter((c) => c.kind === "raw").length;
   console.log(`${raws} raw item(s) and ${changes.length - raws} image(s) written to ${dir}`);
