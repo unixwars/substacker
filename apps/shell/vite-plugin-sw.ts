@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { build } from "vite";
+import { buildId } from "./src/sw/build-id.js";
 import { precacheList } from "./src/sw/precache.js";
 
 function walk(dir: string): string[] {
@@ -32,12 +32,14 @@ export function serviceWorkerPlugin(): Plugin {
     async closeBundle() {
       const files = walk(outDir).map((f) => relative(outDir, f));
       const list = precacheList(files);
-      const buildId = createHash("sha256").update(list.join("\n")).update(files.filter((f) => f.startsWith("assets/")).join("\n")).digest("hex").slice(0, 12);
+      // The contents of every precached file, so a changed manifest or icon changes sw.js.
+      const contents = new Map(list.filter((f) => f !== "./").map((f) => [f, readFileSync(join(outDir, f))]));
+      const id = buildId(contents);
       await build({
         root,
         configFile: false,
         logLevel: "warn",
-        define: { __PRECACHE__: JSON.stringify(list), __BUILD_ID__: JSON.stringify(buildId) },
+        define: { __PRECACHE__: JSON.stringify(list), __BUILD_ID__: JSON.stringify(id) },
         resolve: {
           alias: [{ find: /^substacker-core$/, replacement: core("index.ts") }],
         },

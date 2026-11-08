@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import {
-  cachePrefix, capFromSearch, classify, contentCacheName, databaseName, scopePath, shellCacheName,
+  cachePrefix, capFromSearch, classify, contentCacheName, databaseName, isShellNavigation, scopePath, shellCacheName,
 } from "../offline-shared.js";
 import { planEviction } from "./eviction.js";
 
@@ -56,17 +56,33 @@ async function enforceCap(): Promise<void> {
   }
 }
 
+/**
+ * IndexedDB only keeps the eviction order. It can fail (private modes, a full disk, a blocked
+ * upgrade) and must never break a fetch that works, so every use of it goes through here.
+ */
+async function bookkeeping<T>(run: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await run();
+  } catch {
+    return fallback;
+  }
+}
+
 async function store(request: Request, response: Response, lastOpened: number): Promise<void> {
   const cache = await caches.open(contentCache);
   const bytes = (await response.clone().blob()).size;
   await cache.put(request, response);
-  await putMeta({ key: request.url, bytes, lastOpened });
-  await enforceCap();
+  await bookkeeping(async () => {
+    await putMeta({ key: request.url, bytes, lastOpened });
+    await enforceCap();
+  }, undefined);
 }
 
 async function touch(url: string, lastOpened: number): Promise<void> {
-  const existing = (await allMeta()).find((m) => m.key === url);
-  if (existing) await putMeta({ ...existing, lastOpened });
+  await bookkeeping(async () => {
+    const existing = (await allMeta()).find((m) => m.key === url);
+    if (existing) await putMeta({ ...existing, lastOpened });
+  }, undefined);
 }
 
 async function staleWhileRevalidate(event: FetchEvent): Promise<Response> {
@@ -83,29 +99,31 @@ async function staleWhileRevalidate(event: FetchEvent): Promise<Response> {
   return refresh;
 }
 
-// A post is network first, so edits show up; it is kept when opened and served
-// from the cache when the network is gone.
+// A post is network first, so edits show up; it is kept when opened and served from the
+// cache when the network is gone or the server answers 5xx.
 async function post(event: FetchEvent): Promise<Response> {
-  const when = Math.max(Date.now(), (await latestOpened()) + 1);
-  try {
-    const res = await fetch(event.request);
-    if (res.ok) event.waitUntil(store(event.request, res.clone(), when));
-    return res;
-  } catch {
+  const when = Math.max(Date.now(), (await bookkeeping(latestOpened, 0)) + 1);
+  const fromCache = async () => {
     const cached = await (await caches.open(contentCache)).match(event.request);
-    if (cached) {
-      event.waitUntil(touch(event.request.url, when));
-      return cached;
-    }
-    return Response.error();
+    if (cached) event.waitUntil(touch(event.request.url, when));
+    return cached;
+  };
+  let res: Response;
+  try {
+    res = await fetch(event.request);
+  } catch {
+    return (await fromCache()) ?? Response.error();
   }
+  if (res.ok) event.waitUntil(store(event.request, res.clone(), when));
+  else if (res.status >= 500) return (await fromCache()) ?? res;
+  return res;
 }
 
 // An image is cache first. It belongs to the post being read, so it takes that post's time.
 async function image(event: FetchEvent): Promise<Response> {
   const cache = await caches.open(contentCache);
   const cached = await cache.match(event.request);
-  const when = await latestOpened();
+  const when = await bookkeeping(latestOpened, 0);
   if (cached) {
     event.waitUntil(touch(event.request.url, when));
     return cached;
@@ -123,11 +141,33 @@ async function shell(event: FetchEvent): Promise<Response> {
   return cached ?? fetch(event.request);
 }
 
+/**
+ * Keep `config.json` and the content index from the first visit. The page loads them before
+ * this worker controls it, so they never pass through the fetch handler; without a copy, a
+ * first visit followed by going offline would find nothing to start from.
+ */
+async function precacheContent(): Promise<void> {
+  const cache = await caches.open(contentCache);
+  const configUrl = new URL("config.json", self.registration.scope).href;
+  const configRes = await fetch(configUrl, { cache: "reload" });
+  if (!configRes.ok) return;
+  await cache.put(configUrl, configRes.clone());
+  const { contentUrl } = (await configRes.json()) as { contentUrl?: unknown };
+  if (typeof contentUrl !== "string") return;
+  const base = new URL(contentUrl.endsWith("/") ? contentUrl : `${contentUrl}/`, self.registration.scope);
+  const indexUrl = new URL("index.json", base);
+  // The fetch handler only serves this origin and scope, so only those are worth keeping.
+  if (indexUrl.origin !== self.location.origin || !indexUrl.pathname.startsWith(scope)) return;
+  const indexRes = await fetch(indexUrl, { cache: "reload" });
+  if (indexRes.ok) await cache.put(indexUrl.href, indexRes);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(shellCache);
       await cache.addAll(__PRECACHE__.map((p) => new URL(p, self.registration.scope).href));
+      await precacheContent().catch(() => undefined);
       await self.skipWaiting();
     })(),
   );
@@ -154,7 +194,11 @@ self.addEventListener("fetch", (event) => {
   if (kind === "revalidate") event.respondWith(staleWhileRevalidate(event));
   else if (kind === "post") event.respondWith(post(event));
   else if (kind === "image") event.respondWith(image(event));
-  else if (request.mode === "navigate" || url.pathname.startsWith(`${scope}assets/`) || url.pathname === `${scope}manifest.webmanifest`) {
+  else if (
+    (request.mode === "navigate" && isShellNavigation(url.pathname, scope)) ||
+    url.pathname.startsWith(`${scope}assets/`) ||
+    url.pathname === `${scope}manifest.webmanifest`
+  ) {
     event.respondWith(shell(event));
   }
 });

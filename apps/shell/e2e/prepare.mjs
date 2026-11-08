@@ -34,5 +34,6 @@ for (const [name, s] of Object.entries(scenarios)) {
   // The shell is built per scenario: the manifest takes its name from this config.json.
   await buildShell({ outDir: site, shellConfig: shellConfigFor(config, s.shell), scratchDir: join(e2e, "config", name) });
   writeFiles(join(site, "content"), build(config, s.noPosts ? emptyBackup : backup).files);
+  if (s.extraPages) writeFiles(site, Object.entries(s.extraPages));
 }
 console.log(`e2e sites ready in ${join(e2e, "site")}`);

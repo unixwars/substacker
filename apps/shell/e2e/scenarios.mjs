@@ -11,3 +11,7 @@ export const scenarios = {
 
 // A tiny offline cap, so opening a second post evicts the first.
 scenarios.capped = { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker", offlineCapBytes: 1 }, hidden: [] };
+
+// Served as the root of its own origin (port 4174), so its worker's scope is "/" and other
+// paths on that origin are not the shell's.
+scenarios.root = { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker" }, hidden: [], extraPages: { "elsewhere/index.html": "<!doctype html><title>Elsewhere</title><h1>Another app</h1>\n" } };

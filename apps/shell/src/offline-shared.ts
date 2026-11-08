@@ -41,3 +41,12 @@ export function capFromSearch(search: string): number {
   const n = raw === null ? NaN : Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_CAP_BYTES;
 }
+
+/**
+ * Whether a page navigation is to the shell itself: the scope, or its `index.html`. Only
+ * those get the cached shell. On a site served from the root, every other path on the origin
+ * belongs to something else and must reach the network untouched.
+ */
+export function isShellNavigation(pathname: string, scope: string): boolean {
+  return pathname === scope || pathname === `${scope}index.html`;
+}

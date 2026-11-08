@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CAP_BYTES, cachePrefix, capFromSearch, classify, contentCacheName, scopePath, shellCacheName } from "./offline-shared.js";
+import { DEFAULT_CAP_BYTES, cachePrefix, capFromSearch, classify, contentCacheName, isShellNavigation, scopePath, shellCacheName } from "./offline-shared.js";
 
 describe("naming", () => {
   it("derives a prefix from the base path, so two shells never share names", () => {
@@ -44,4 +44,16 @@ describe("capFromSearch", () => {
     expect(capFromSearch("?cap=abc")).toBe(DEFAULT_CAP_BYTES);
     expect(capFromSearch("?cap=-5")).toBe(DEFAULT_CAP_BYTES);
   });
+});
+
+describe("isShellNavigation", () => {
+  it.each([["/repo/", "/repo/"], ["/repo/index.html", "/repo/"], ["/", "/"], ["/index.html", "/"]])("serves the shell for %s in scope %s", (path, scope) => {
+    expect(isShellNavigation(path, scope)).toBe(true);
+  });
+  it.each([["/other/", "/"], ["/repo/other", "/repo/"], ["/repo/p/x", "/repo/"], ["/repo", "/repo/"], ["/elsewhere/index.html", "/"], ["/repo/content/index.json", "/repo/"]])(
+    "leaves %s alone in scope %s",
+    (path, scope) => {
+      expect(isShellNavigation(path, scope)).toBe(false);
+    },
+  );
 });

@@ -3,8 +3,9 @@ import { expect, test } from "@playwright/test";
 test.describe("list", () => {
   test("shows the posts newest first", async ({ page }) => {
     await page.goto("/main/");
-    const titles = await page.locator(".entry-title").allTextContents();
-    expect(titles).toEqual(["Just text", "Second post", "Hello, world"]);
+    // A retrying assertion: the list renders after config.json and the index load, so reading
+    // the titles right after goto raced the render and sometimes saw an empty list.
+    await expect(page.locator(".entry-title")).toHaveText(["Just text", "Second post", "Hello, world"]);
   });
 
   test("shows an empty state for a feed with no posts", async ({ page }) => {
