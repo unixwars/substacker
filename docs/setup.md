@@ -40,6 +40,7 @@ Settings are not stored in the repository, so no publication is named in the cod
 
 - Actions start disabled on a fork: open the Actions tab and enable them.
 - Settings, Pages, Source: GitHub Actions.
+- The workflow deploys through the `github-pages` environment, which by default only accepts deployments from `main`; run it from `main`.
 - Run the `publish` workflow once by hand. After that it runs daily and on every push to `main`.
 
 ## 3a. The relay (if Substack refuses GitHub's runners)
@@ -138,7 +139,7 @@ GitHub disables scheduled workflows after 60 days without repository activity. I
 
 ## Serving the shell under a path
 
-The shell uses hash routes (`#/p/<slug>`), so any static host can serve it and a reload never needs server rewrites. Vite's base comes from the environment when building:
+The shell uses hash routes (`#/p/<slug>`), so any static host can serve it and a reload never needs server rewrites. Vite's base comes from the environment when building (the publish workflow uses the relative base `./`, which works under any path):
 
 ```bash
 SUBSTACKER_BASE=/my-repo/ npm run build -w substacker-shell   # project Pages site

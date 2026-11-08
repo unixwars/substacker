@@ -22,6 +22,8 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 | `packages/core` | The content contract and the pure logic (`substacker-core`, the only distributed package). |
 | `packages/scraper` | Reads the feed and writes the content files (`substacker-scrape`, `substacker-build`). |
 | `apps/shell` | The static PWA reader with its own service worker. |
+| `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`, `build-shell.mjs`, `site-size.mjs`, `publish-dry-run.mjs`). |
+| `assets/` | Source artwork for the icons (`icon.webp`, `icon.svg`); `npm run icons -w substacker-shell` regenerates the PNGs in `apps/shell/public`. |
 | `apps/relay` | A Cloudflare Worker that relays the feed fetch, needed only if Substack refuses GitHub's runners. Deploy steps are in [docs/setup.md](docs/setup.md). |
 | `content` branch | The generated backup. Orphan branch, no force pushes. |
 
@@ -51,9 +53,9 @@ Settings are never committed: copy [substacker.config.example.json](substacker.c
 
 | Layer | Covers | Command |
 |---|---|---|
-| Unit | Pure logic in `packages/*` (contract, sanitizing, post logic, search, hooks with a fake `fetch`, feed parsing, derivation). No network, no browser. | `npm run test:unit` |
-| Integration | Whole flows against fixture feeds: scrape then build, idempotence, failure paths. Packing `substacker-core`, installing the tarball in an empty directory and importing every subpath (needs the npm registry). | `npm run test:integration` |
-| Shell end-to-end | Playwright (Chromium) against static sites assembled from the fixture feed: list, post, previous and next, search, empty state, hidden post, dock and Subscribe by configuration, and offline reading (offline reload, an unopened post, cap eviction, a second shell on the same origin). Needs `npm run build` first and, once, `npx playwright install chromium`. | `npm run test:e2e` |
+| Unit | Pure logic in `packages/*` (contract, sanitizing, post logic including image type sniffing, search, hooks with a fake `fetch`, feed parsing, derivation), the shell's manifest and committed icons, and the relay's handler called directly with fake requests and a stub `fetch`. No network, no browser. | `npm run test:unit` |
+| Integration | Whole flows against fixture feeds: scrape then build, idempotence, failure paths, and the publish dry run (files it would commit, none on a second run, files it would deploy). Packing `substacker-core`, installing the tarball in an empty directory and importing every subpath (needs the npm registry). | `npm run test:integration` |
+| Shell end-to-end | Playwright (Chromium) against static sites assembled from the fixture feed: list, post, previous and next, search, empty state, hidden post, dock and Subscribe by configuration, the manifest name and icons, and offline reading (offline reload, an unopened post, cap eviction, a second shell on the same origin). Needs `npm run build` first and, once, `npx playwright install chromium`. | `npm run test:e2e` |
 
 Unit tests are `*.test.ts` beside the code; integration tests are `*.integration.test.ts` (plus `test/` at the root); end-to-end specs are in `apps/shell/e2e`. Static gates: `npm run typecheck` (strict `tsc`) and `npm run lint` (ESLint).
 
