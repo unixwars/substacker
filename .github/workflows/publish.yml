@@ -1,0 +1,90 @@
+name: publish
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# Two runs must not race to commit; a run in progress is never cancelled.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # A fork gets only the default branch: create the orphan `content` branch
+      # (one empty commit) if it is missing. Never touches an existing one.
+      - name: Create the content branch if missing
+        run: |
+          if ! git ls-remote --exit-code --heads origin content >/dev/null 2>&1; then
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            commit="$(git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$empty_tree" -m 'Create the content branch')"
+            git push origin "$commit:refs/heads/content"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: content
+          path: content
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w substacker-core -w substacker-scraper
+
+      # Idempotent: a run with nothing new writes nothing. If Substack answers 403
+      # from this network, the step fails and says to set up the relay.
+      - name: Scrape the feed into the backup
+        run: npx substacker-scrape --backup content
+        env:
+          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+          SUBSTACKER_RELAY_SECRET: ${{ secrets.SUBSTACKER_RELAY_SECRET }}
+
+      - name: Commit the backup if it changed
+        working-directory: content
+        run: |
+          git add -A raw images
+          if git diff --cached --quiet; then
+            echo "Nothing new to back up."
+          else
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "Back up new and edited posts"
+            git push origin HEAD:content
+          fi
+
+      # One Pages site: the shell at the root (config.json written from the resolved
+      # configuration), the served files derived from the backup under /content/.
+      - name: Build the shell
+        run: node scripts/build-shell.mjs --out site
+        env:
+          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+      - name: Derive the served content
+        run: npx substacker-build --backup content --out site/content
+        env:
+          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+      - name: Report the site size (fails above 800 MB)
+        run: node scripts/site-size.mjs site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

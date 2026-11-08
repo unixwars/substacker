@@ -20,7 +20,8 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:e2e": "npm run test:e2e --workspaces --if-present"
+    "test:e2e": "npm run test:e2e --workspaces --if-present",
+    "publish:dry-run": "node scripts/publish-dry-run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

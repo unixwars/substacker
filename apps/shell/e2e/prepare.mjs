@@ -1,24 +1,17 @@
-// Builds the shell with a relative base and assembles one static site per scenario
-// under apps/shell/.e2e/site/<name>/ from the fixture feed. Needs `npm run build` at
-// the repository root first (it uses the built scraper).
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+// Assembles one static site per scenario under apps/shell/.e2e/site/<name>/ from the
+// fixture feed, with the same code the publish workflow uses (scripts/site.mjs): the
+// shell with its config.json at the root, the served content under content/. Needs
+// `npm run build` at the repository root first (it uses the built scraper).
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { imageKey } from "substacker-core";
+import { buildShell, root, scraperModule, shellConfigFor, shellDir, writeFiles } from "../../../scripts/site.mjs";
 import { scenarios } from "./scenarios.mjs";
 
-const shellDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-const root = join(shellDir, "..", "..");
 const e2e = join(shellDir, ".e2e");
-const scraperDist = join(root, "packages", "scraper", "dist");
-if (!existsSync(join(scraperDist, "build.js"))) {
-  console.error("Build the workspace first: npm run build");
-  process.exit(1);
-}
-const { build } = await import(join(scraperDist, "build.js"));
-const { parseFeed } = await import(join(scraperDist, "feed.js"));
-const { imageUrls } = await import(join(scraperDist, "derive.js"));
-const { imageKey } = await import("substacker-core");
+const { build } = await scraperModule("build");
+const { parseFeed } = await scraperModule("feed");
+const { imageUrls } = await scraperModule("derive");
 
 rmSync(e2e, { recursive: true, force: true });
 
@@ -39,21 +32,7 @@ for (const [name, s] of Object.entries(scenarios)) {
   const site = join(e2e, "site", name);
   const config = { feedUrl: "https://example.substack.com/feed", feedName: s.shell.feedName, actions: s.shell.actions, utmSource: s.shell.utmSource, hidden: s.hidden };
   // The shell is built per scenario: the manifest takes its name from this config.json.
-  const shellConfig = JSON.stringify({ contentUrl: "content/", ...s.shell }, null, 2);
-  const configPath = join(e2e, "config", `${name}.json`);
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, shellConfig);
-  execFileSync("npx", ["vite", "build", "--outDir", site, "--emptyOutDir", "--logLevel", "warn"], {
-    cwd: shellDir,
-    stdio: "inherit",
-    env: { ...process.env, SUBSTACKER_BASE: "./", SUBSTACKER_SHELL_CONFIG: configPath },
-  });
-  const { files } = build(config, s.noPosts ? emptyBackup : backup);
-  for (const [path, data] of files) {
-    const file = join(site, "content", path);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, data);
-  }
-  writeFileSync(join(site, "config.json"), shellConfig);
+  await buildShell({ outDir: site, shellConfig: shellConfigFor(config, s.shell), scratchDir: join(e2e, "config", name) });
+  writeFiles(join(site, "content"), build(config, s.noPosts ? emptyBackup : backup).files);
 }
 console.log(`e2e sites ready in ${join(e2e, "site")}`);

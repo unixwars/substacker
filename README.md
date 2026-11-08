@@ -5,7 +5,7 @@
 
 Back up a Substack publication as static files, and read, search and browse it offline. A scheduled job reads the publication's RSS feed and commits each post's raw feed item and its images to a protected `content` branch; a static PWA reader and a small embeddable core library are derived from that backup.
 
-**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The relay exists too (deploy it only if Substack refuses GitHub's runners). Not yet built: the publish workflow, the first release, and the live checks listed at the end of the plan. The design and the implementation plan are in [docs/](docs/).
+**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The relay exists too (deploy it only if Substack refuses GitHub's runners). The publish workflow and its dry run exist too. Not yet built: the first release, and the live checks listed at the end of the plan. The design and the implementation plan are in [docs/](docs/).
 
 ## What it is
 
@@ -68,6 +68,12 @@ Unit tests are `*.test.ts` beside the code; integration tests are `*.integration
 5. **Shell end-to-end:** installs Chromium (`npx playwright install --with-deps chromium`), runs `npm run build` then `npm run test:e2e`, and uploads the Playwright report as `e2e-reports`.
 
 There is no database or container here, so "integration" means: a fixture feed served by a local HTTP server goes through scrape then build (and a second run changes nothing); the failure paths (down feed, cross-host redirect, failed image then retry) and hiding behave as specified; `substacker-core` is packed, installed from the tarball in an empty temporary project (this step reaches the npm registry) and every subpath is imported; and Playwright drives the built shell against fixture content, including offline.
+
+## Publishing
+
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml) runs daily, on demand and on every push to `main`, with a `publish` concurrency group that never cancels a run in progress and permissions for `contents`, `pages` and `id-token`. It creates the orphan `content` branch if it is missing, checks out `main` and `content`, runs `substacker-scrape` (configuration from the `SUBSTACKER_CONFIG` variable, the relay secret from the `SUBSTACKER_RELAY_SECRET` secret), commits the backup with plain `git` only when something changed, builds the shell with `config.json` written from the resolved configuration, derives the served files with `substacker-build` into `content/` of the same site, reports the site size (failing above 800 MB) and deploys one Pages site. If Substack answers 403 and no `relayUrl` is set, the scrape fails with a message pointing to the relay (see [docs/setup.md](docs/setup.md)).
+
+To see what a run would do without pushing anything, run `npm run build` then `npm run publish:dry-run`: it executes the same steps against the fixture feed, served locally, and lists the backup files it would commit (none on a second run with the same `--workdir`) and the files it would deploy. `test:integration` covers it.
 
 A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which packs `substacker-core` and attaches the tarball to a GitHub Release.
 

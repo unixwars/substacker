@@ -1,6 +1,6 @@
 # Setup and forking
 
-Status: written ahead of the implementation; commands and file names are what the plan builds (task 14 verifies this guide end to end).
+Status: the commands and file names below exist; the live steps (Pages, the ruleset, the relay, a scheduled run) have not been run against a real repository yet.
 
 ## 1. Fork and reset the `content` branch
 
@@ -121,6 +121,16 @@ To run the scraper locally, create `substacker.config.local.json` (see step 2), 
 | `SUBSTACKER_RELAY_SECRET` | Actions secret | only if you use `relayUrl`; sent to the relay as the `x-relay-secret` header, and the same value as the Worker's `RELAY_SECRET` |
 
 CI (`.github/workflows/ci.yml`) needs neither: its tests use fixtures and no real feed.
+
+## What the workflow does, and a dry run
+
+`publish.yml` scrapes into the `content` branch, commits the backup only if it changed, builds the shell and the served files into one site, checks its size (fails above 800 MB) and deploys it. To see its steps locally without pushing anything:
+
+```bash
+npm run build
+npm run publish:dry-run                      # fixture feed served locally; prints what it would commit and deploy
+node scripts/publish-dry-run.mjs --workdir /tmp/dry   # run twice: the second run would commit nothing
+```
 
 ## 5. If the schedule lapses
 
