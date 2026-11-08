@@ -55,9 +55,19 @@ Substack may answer HTTP 403 to requests from GitHub's runners. If a run of the 
 ```bash
 npm ci                                   # at the repository root: installs the pinned wrangler (a devDependency of apps/relay)
 cd apps/relay
-npx wrangler login
+npx wrangler login --device --scopes account:read user:read workers_scripts:write
 npm run deploy -- --var ALLOWED_HOST:<publication>.substack.com
 npx wrangler secret put RELAY_SECRET     # paste a long random value, e.g. from: openssl rand -base64 32
+```
+
+A plain `wrangler login` asks for about 30 permissions (KV, D1, Pages, zones and more); the `--scopes` above limits the grant to what a deploy and `secret put` need. `--device` is for containers and remote shells, where the default login redirects to `localhost:8976`, which your browser cannot reach; it prints a code and a URL to open on your own machine. These three scopes are the minimum we expect to work and have not been exercised against a real account: if `deploy` fails with a permission error, add `workers:write` and log in again (`npx wrangler login --scopes-list` lists the names). Run `npx wrangler logout` when you are done.
+
+**Alternative: a scoped API token, nothing stored on the machine.** In the Cloudflare dashboard, My Profile, API Tokens, Create Token, use the "Edit Cloudflare Workers" template, then keep only Account, Workers Scripts, Edit and Account, Account Settings, Read; set Account Resources to your account alone; remove the zone rows; and give it an expiry a day or two ahead. Export it for the deploy only, then delete the token:
+
+```bash
+export CLOUDFLARE_API_TOKEN=<token> CLOUDFLARE_ACCOUNT_ID=<account id, from the dashboard URL>
+npm run deploy -- --var ALLOWED_HOST:<publication>.substack.com
+npx wrangler secret put RELAY_SECRET
 ```
 
 `wrangler deploy` prints the Worker's address (`https://substacker-relay.<your-subdomain>.workers.dev`). `wrangler.toml` holds only a placeholder `ALLOWED_HOST` and no account id or secret; wrangler is pinned in `apps/relay/package.json`, so `npx wrangler` runs that copy and never downloads one. Pass your own host with `--var` on every deploy, or edit it locally and do not commit it.
