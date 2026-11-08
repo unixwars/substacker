@@ -1,6 +1,6 @@
 # substacker: a static backup and offline reader for a Substack
 
-Date: 2026-11-06 (revised 2026-11-08). Status: **draft, awaiting review, not implemented**.
+Date: 2026-11-06 (revised 2026-11-08). Status: **approved; implemented through plan task 14 (core, scraper, build, shell with offline reading, relay, publish workflow and its dry run, docs), then hardened after a review (bounded and polite downloads, SVG sanitizing, service-worker fixes). The live checks of task 15 are still to be run.**
 
 ## Why
 
@@ -10,7 +10,8 @@ A Substack publication's posts live on Substack. We want a copy we own, readable
 
 - Free tiers only. No backend beyond static hosting and the hosts' own scheduled jobs.
 - The feed is `https://<publication>.substack.com/feed`, set in configuration. It carries only the latest 20 items, so everything older comes from the one-off backfill. No publication is named in the repository: the real values live in a GitHub repository variable in CI and in `substacker.config.local.json` (gitignored) locally; `substacker.config.example.json` is the committed template (section 2, Configuration). A mistyped publication name can redirect to an unrelated site, which is why the scraper aborts on a cross-host redirect.
-- Substack blocks GitHub's IP range, so a GitHub-hosted runner may not reach it. The development machine reaches the feed (HTTP 200); whether GitHub Actions does is what the probe settles (section 2).
+- Substack blocks GitHub's IP range. **Probe result:** the development machine reaches the feed (HTTP 200), but GitHub-hosted runners get HTTP 403 from the feed whatever user agent they send, so the relay is built. Whether Substack accepts requests from Cloudflare's network is **not yet verified**; it is the first live check.
+- A publication on a custom domain redirects off `*.substack.com`. `feedUrl` and the relay's `ALLOWED_HOST` must then name the custom host, or the scrape aborts as a cross-host redirect.
 - The feed link is configuration, never code: anyone can fork the project and point it at their own feed.
 - CI builds and validates everything; logic is unit-tested, flows integration-tested.
 
@@ -61,14 +62,14 @@ Two commands in one package: `substacker-scrape` (fetch the feed and store the b
 - **Hiding posts.** `hidden` is a list of slugs. Every post is still stored, but a hidden one is left out of `index.json` and `search.json`, so no reader lists, searches or links to it, and previous and next skip it. A reader asked for a slug that is not in the index says it was not found. Removing a slug from the list brings the post back on the next run without re-fetching it, and the list survives edits on Substack. It applies to every surface at once. Hiding is a display choice, not confidentiality: the files are in a public branch and the post is public on Substack. A slug that matches no stored post is a warning.
 - **Idempotent.** The raw item is rewritten only when its hash changes, and an image is downloaded only if its file is missing. Nothing derived is committed, so the `content` branch changes only when there is something new to back up, and a run with nothing new commits nothing. The build is a pure function of the backup and the configuration, run on every deploy.
 - **Failure.** A feed fetch or parse error aborts the scrape with no partial commit; a malformed feed never overwrites good content. A redirect to another host aborts it too (the old feed URL redirects to a stranger's site). An image that fails to download does not fail the run: the next scrape retries every stored item whose image file is missing, and until then the built post keeps that image's original address and is marked `unlocalized`. A build error fails the deploy and leaves the previous site live; the backup is untouched, so fixing the build and re-running recovers.
-- **Images.** Body images come from several hosts (Substack's CDN, its S3 bucket, third parties such as Unsplash), so they are fetched directly and are not subject to the relay. Each `<picture>` keeps one candidate and becomes a plain `<img>`; the other widths are dropped to save space.
+- **Images.** Body images come from several hosts (Substack's CDN, its S3 bucket, third parties such as Unsplash), so they are fetched directly and are not subject to the relay. Each `<picture>` keeps one candidate and becomes a plain `<img>`; the other widths are dropped to save space. The scraper downloads them politely and safely: https only, every redirect hop and resolved address checked (no loopback, private or link-local target), a 30 s timeout and a streaming size cap, at most 4 requests in flight and 2 per host with a short pause between requests to one host, `429`/`503` retried a bounded number of times honouring `Retry-After`, and a host that keeps answering 429 is left alone for the rest of the run. An SVG is kept but sanitized before it is stored (no script, handlers, `foreignObject` or external references). `docs/setup.md` has the details. An item the build cannot derive (no valid date, say) is skipped with a warning, never stored by the scrape and never fatal to the build.
 - **Publishing.** The workflow commits the new backup files with plain `git` to the `content` branch, then builds and deploys. No review step.
 - **Reaching Substack.** If the runner's IPs are blocked from the feed, the job fetches the feed through the relay: a Worker that fetches one URL, allowlisted to the feed host, for callers with a secret. It parses and commits nothing, which keeps it inside the free Worker limits.
 - **Probe first.** A script in `probes/`, committed with its task, fetches the feed and one image of each kind from GitHub Actions and through the relay, and checks whether `/api/v1/posts/<slug>` returns a numeric id. Its result decides whether the relay is built and whether the app action can be revisited. A GitLab arm is added only if both fail.
 
 ### 3. Sanitizing
 
-Posts are sanitized when scraped and again when rendered: a compromised `content` branch would otherwise be an XSS path into whichever origin shows it. One library, DOMPurify, runs on both sides (in Node through jsdom for the scraper), configured from one policy that is **data in core** (allowed tags, attributes and URL schemes). A test runs a corpus of hostile inputs (scripts, handlers, `javascript:` links, iframes, SVG) and asserts properties of the output, not exact strings.
+The raw item is stored verbatim, because it is the backup. Posts are sanitized when the served files are built (`substacker-build`) and again when rendered: a compromised `content` branch would otherwise be an XSS path into whichever origin shows it. One library, DOMPurify, runs on both sides (in Node through jsdom for the scraper), configured from one policy that is **data in core** (allowed tags, attributes and URL schemes). A test runs a corpus of hostile inputs (scripts, handlers, `javascript:` links, iframes, SVG) and asserts properties of the output, not exact strings.
 
 Substack's own widgets are handled before sanitizing, from the feed's real markup: `<p class="button-wrapper"><a class="button primary">` blocks are recognized by `href` (subscribe, comments, share) and removed from the body, because the readers offer those actions themselves (section 4); any other such link stays as a plain link. `<button>`, `<svg>`, `data-attrs` and the `class` attributes are dropped. An iframe or embed becomes a link to its source.
 
@@ -106,5 +107,5 @@ Running the probe; creating the repository, the `content` branch and its ruleset
 
 ## Open before the plan is executed
 
-- The probe's result (relay or not; whether a numeric post id is obtainable).
+- Whether Substack accepts the relay's Cloudflare network (the probe settled that GitHub's runners are refused), and whether a numeric post id is obtainable.
 - The repository is assumed public: the posts already are, and free Pages hosting requires it.
