@@ -108,3 +108,56 @@ export function scrapeMode(value: string | undefined): ScrapeMode {
   if (v === "ci") return "ci";
   throw new Error(`SUBSTACKER_SCRAPE must be "local" or "ci", not "${value}".`);
 }
+
+export interface ScrapeOptions {
+  init: boolean;
+  dryRun: boolean;
+  noDispatch: boolean;
+  help: boolean;
+  /** Standalone clone of `content` at this path (container mode); otherwise a worktree of the current repository. */
+  contentDir?: string;
+  /** The `content` remote, with `contentDir`; the environment variable is the other source. */
+  remote?: string;
+}
+
+/** The command line of `scripts/scrape-local.mjs`. A bad one is a message (exit code 2). */
+export function parseScrapeArgs(argv: string[]): { ok: true; options: ScrapeOptions } | { ok: false; message: string } {
+  const usage = "Usage: node scripts/scrape-local.mjs [--init] [--no-dispatch] [--dry-run] [--content-dir <path> [--remote <url>]]";
+  const options: ScrapeOptions = { init: false, dryRun: false, noDispatch: false, help: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] as string;
+    if (a === "--init") options.init = true;
+    else if (a === "--dry-run") options.dryRun = true;
+    else if (a === "--no-dispatch") options.noDispatch = true;
+    else if (a === "--help") options.help = true;
+    else if (a === "--content-dir" || a === "--remote") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("--")) return { ok: false, message: `${a} needs a value. ${usage}` };
+      i++;
+      if (a === "--content-dir") options.contentDir = value;
+      else options.remote = value;
+    } else return { ok: false, message: `Unknown option ${a}. ${usage}` };
+  }
+  if (options.remote !== undefined && options.contentDir === undefined) return { ok: false, message: `--remote only applies with --content-dir. ${usage}` };
+  if (options.init && options.dryRun) return { ok: false, message: "--init pushes a branch; it cannot be combined with --dry-run." };
+  return { ok: true, options };
+}
+
+/**
+ * The address of the `content` remote in `--content-dir` mode: `--remote`, else
+ * `SUBSTACKER_CONTENT_REMOTE`. Plain http is refused because the token would travel with it.
+ */
+export function contentRemote(flag: string | undefined, env: Record<string, string | undefined>): string {
+  const value = (flag ?? env["SUBSTACKER_CONTENT_REMOTE"] ?? "").trim();
+  if (!value) throw new Error("No content remote. Set SUBSTACKER_CONTENT_REMOTE to the https address of the repository (or pass --remote <url>).");
+  if (value.startsWith("-")) throw new Error("The content remote must be an address, not an option.");
+  if (/^http:\/\//i.test(value)) throw new Error("The content remote must be https (the token travels with every push).");
+  return value;
+}
+
+/** The git identity from `SUBSTACKER_GIT_NAME` and `SUBSTACKER_GIT_EMAIL`; both are needed. */
+export function gitIdentity(env: Record<string, string | undefined>): { name: string; email: string } | undefined {
+  const name = env["SUBSTACKER_GIT_NAME"]?.trim();
+  const email = env["SUBSTACKER_GIT_EMAIL"]?.trim();
+  return name && email ? { name, email } : undefined;
+}

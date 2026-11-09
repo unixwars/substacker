@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   backupMessage,
+  contentRemote,
+  gitIdentity,
+  parseScrapeArgs,
   dispatchRequest,
   dispatchToken,
   lockIsStale,
@@ -122,5 +125,69 @@ describe("scrapeMode", () => {
   it("rejects anything else rather than guessing", async () => {
     const { scrapeMode } = await import("./local.js");
     expect(() => scrapeMode("cloud")).toThrow(/SUBSTACKER_SCRAPE.*local.*ci/);
+  });
+});
+
+describe("parseScrapeArgs", () => {
+  it("reads the plain flags", () => {
+    expect(parseScrapeArgs(["--init", "--no-dispatch"])).toEqual({
+      ok: true,
+      options: { init: true, dryRun: false, noDispatch: true, help: false },
+    });
+  });
+  it("reads --content-dir and --remote with their values", () => {
+    expect(parseScrapeArgs(["--content-dir", "/data/content", "--remote", "https://github.com/a/b.git"])).toEqual({
+      ok: true,
+      options: { init: false, dryRun: false, noDispatch: false, help: false, contentDir: "/data/content", remote: "https://github.com/a/b.git" },
+    });
+  });
+  it.each([
+    [["--force"], /Unknown option --force/],
+    [["--content-dir"], /--content-dir needs a value/],
+    [["--content-dir", "--init"], /--content-dir needs a value/],
+    [["--remote", "x"], /--remote only applies with --content-dir/],
+    [["--init", "--dry-run"], /--init pushes a branch/],
+    [["--content-dir", ""], /--content-dir needs a value/],
+  ])("rejects %j", (argv, message) => {
+    const r = parseScrapeArgs(argv);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(message);
+  });
+  it("recognises --help", () => {
+    const r = parseScrapeArgs(["--help"]);
+    expect(r.ok && r.options.help).toBe(true);
+  });
+});
+
+describe("contentRemote", () => {
+  it("prefers --remote over the environment", () => {
+    expect(contentRemote("https://github.com/a/b.git", { SUBSTACKER_CONTENT_REMOTE: "https://github.com/c/d.git" })).toBe("https://github.com/a/b.git");
+  });
+  it("falls back to SUBSTACKER_CONTENT_REMOTE, trimmed", () => {
+    expect(contentRemote(undefined, { SUBSTACKER_CONTENT_REMOTE: " https://github.com/c/d.git\n" })).toBe("https://github.com/c/d.git");
+  });
+  it("names the variable when nothing is set", () => {
+    expect(() => contentRemote(undefined, {})).toThrow(/SUBSTACKER_CONTENT_REMOTE/);
+    expect(() => contentRemote(undefined, { SUBSTACKER_CONTENT_REMOTE: "  " })).toThrow(/--remote/);
+  });
+  it("refuses plain http, since the token would travel in the clear", () => {
+    expect(() => contentRemote("http://github.com/a/b.git", {})).toThrow(/https/);
+  });
+  it("accepts https, ssh and local paths", () => {
+    for (const r of ["https://github.com/a/b.git", "git@github.com:a/b.git", "/srv/origin.git"]) expect(contentRemote(r, {})).toBe(r);
+  });
+  it("refuses a value that looks like an option", () => {
+    expect(() => contentRemote("--upload-pack=x", {})).toThrow(/not an option/);
+  });
+});
+
+describe("gitIdentity", () => {
+  it("uses the environment values", () => {
+    expect(gitIdentity({ SUBSTACKER_GIT_NAME: " Bot ", SUBSTACKER_GIT_EMAIL: "bot@example.com" })).toEqual({ name: "Bot", email: "bot@example.com" });
+  });
+  it("is undefined unless both are set", () => {
+    expect(gitIdentity({ SUBSTACKER_GIT_NAME: "Bot" })).toBeUndefined();
+    expect(gitIdentity({ SUBSTACKER_GIT_EMAIL: "bot@example.com" })).toBeUndefined();
+    expect(gitIdentity({})).toBeUndefined();
   });
 });

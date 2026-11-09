@@ -113,7 +113,7 @@ interface Result {
   err: string;
 }
 
-function runScript(s: Scenario, args: string[] = [], extra: Record<string, string> = {}, feed = "/feed"): Promise<Result> {
+function runScript(s: Scenario, args: string[] = [], extra: Record<string, string> = {}, feed = "/feed", cwd = s.clone): Promise<Result> {
   const config = { feedUrl: `${feedOrigin}${feed}`, feedName: "Example Newsletter", actions: [], utmSource: "substacker", hidden: [] };
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -125,7 +125,7 @@ function runScript(s: Scenario, args: string[] = [], extra: Record<string, strin
     ...extra,
   };
   return new Promise((resolve) => {
-    execFile("node", [script, ...args], { cwd: s.clone, env: env as NodeJS.ProcessEnv }, (e, out, err) => {
+    execFile("node", [script, ...args], { cwd, env: env as NodeJS.ProcessEnv }, (e, out, err) => {
       resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, out, err });
     });
   });
@@ -370,4 +370,178 @@ it("never forces: origin's content only ever fast-forwards, and the script has n
   const source = readFileSync(script, "utf8").replace(/\/\/.*$/gm, "");
   expect(source).not.toMatch(/--force|\+refs|--delete|reset --hard|"-f"/);
   expect(readdirSync(join(s.bare, "refs", "heads"))).toContain("content");
+});
+
+// --content-dir: the content branch as a standalone clone, in a directory that is not a repository.
+
+/** Environment of the container: no user git config at all, the identity and remote from variables. */
+const containerEnv = (s: Scenario, extra: Record<string, string> = {}) => ({
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  HOME: top,
+  SUBSTACKER_CONTENT_REMOTE: s.bare,
+  SUBSTACKER_GIT_NAME: "Container Bot",
+  SUBSTACKER_GIT_EMAIL: "bot@example.com",
+  ...extra,
+});
+const dataDirOf = (s: Scenario) => join(s.clone, "..", "data", "content");
+const runContent = (s: Scenario, args: string[] = [], extra: Record<string, string> = {}, feed = "/feed") =>
+  runScript(s, ["--content-dir", dataDirOf(s), ...args], containerEnv(s, extra), feed, top);
+
+it("--content-dir: clones the content branch on a first run, pushes the backup, and changes nothing on a second", async () => {
+  const s = scenario();
+  const before = tip(s);
+  const first = await runContent(s);
+  expect(first.err).toBe("");
+  expect(first.code).toBe(0);
+  expect(first.out).toMatch(/^scrape:local: pushed/m);
+  expect(originFiles(s)).toEqual(expect.arrayContaining(["raw/hello-world.xml", "raw/second-post.xml"]));
+  expect(git(s.bare, "log", "-1", "--format=%an <%ae>", "content")).toBe("Container Bot <bot@example.com>");
+  const afterFirst = tip(s);
+  expect(isAncestor(s, before, afterFirst)).toBe(true);
+  expect(git(dataDirOf(s), "rev-parse", "--abbrev-ref", "HEAD")).toBe("content");
+  const second = await runContent(s);
+  expect(second.code).toBe(0);
+  expect(second.out).toContain("nothing new");
+  expect(tip(s)).toBe(afterFirst);
+  expect(existsSync(join(dataDirOf(s), ".git", "substacker-scrape.lock"))).toBe(false);
+});
+
+it("--content-dir: refuses a dirty clone and leaves it as it was", async () => {
+  const s = scenario();
+  expect((await runContent(s)).code).toBe(0);
+  const mine = join(dataDirOf(s), "raw", "mine.xml");
+  writeFileSync(mine, "local work");
+  const before = tip(s);
+  const r = await runContent(s);
+  expect(r.code).toBe(1);
+  expect(r.err).toMatch(/uncommitted changes/);
+  expect(readFileSync(mine, "utf8")).toBe("local work");
+  expect(tip(s)).toBe(before);
+});
+
+it("--content-dir: fast-forwards a clone that is behind origin, and refuses a directory that is not the content clone", async () => {
+  const s = scenario();
+  expect((await runContent(s)).code).toBe(0);
+  const other = join(top, `ffother${counter}`);
+  git(top, "clone", "-q", "--branch", "content", s.bare, other);
+  writeFileSync(join(other, "raw", "elsewhere.xml"), "<item/>");
+  git(other, "add", "-A");
+  git(other, "commit", "-q", "-m", "elsewhere");
+  git(other, "push", "-q", "origin", "content");
+  expect((await runContent(s)).code).toBe(0);
+  expect(existsSync(join(dataDirOf(s), "raw", "elsewhere.xml"))).toBe(true);
+
+  const s2 = scenario();
+  mkdirSync(dataDirOf(s2), { recursive: true });
+  writeFileSync(join(dataDirOf(s2), "stray.txt"), "x");
+  const stray = await runContent(s2);
+  expect(stray.code).toBe(1);
+  expect(stray.err).toMatch(/not a clone of the `content` branch/);
+  expect(readFileSync(join(dataDirOf(s2), "stray.txt"), "utf8")).toBe("x");
+});
+
+it("--content-dir: clones into an empty directory", async () => {
+  const s = scenario();
+  mkdirSync(dataDirOf(s), { recursive: true });
+  expect((await runContent(s)).code).toBe(0);
+  expect(originFiles(s).length).toBeGreaterThan(0);
+});
+
+it("--content-dir: fails clearly without a remote", async () => {
+  const s = scenario();
+  const r = await runContent(s, [], { SUBSTACKER_CONTENT_REMOTE: "" });
+  expect(r.code).toBe(1);
+  expect(r.err).toMatch(/SUBSTACKER_CONTENT_REMOTE/);
+  expect(existsSync(dataDirOf(s))).toBe(false);
+  const viaFlag = await runScript(s, ["--content-dir", dataDirOf(s), "--remote", s.bare], containerEnv(s, { SUBSTACKER_CONTENT_REMOTE: "" }), "/feed", top);
+  expect(viaFlag.code).toBe(0);
+});
+
+it("--content-dir: fails clearly without a git identity, and takes it from the environment otherwise", async () => {
+  const s = scenario();
+  const none = await runContent(s, [], { SUBSTACKER_GIT_NAME: "", SUBSTACKER_GIT_EMAIL: "" });
+  expect(none.code).toBe(1);
+  expect(none.err).toMatch(/No git identity/);
+  expect(none.err).toContain("SUBSTACKER_GIT_NAME");
+  expect(originFiles(s)).toEqual([]);
+
+  const ok = await runContent(s);
+  expect(ok.code).toBe(0);
+  // Stored locally in the clone, so later runs need no variables.
+  expect(git(dataDirOf(s), "config", "--local", "user.name")).toBe("Container Bot");
+  const later = await runContent(s, [], { SUBSTACKER_GIT_NAME: "", SUBSTACKER_GIT_EMAIL: "" });
+  expect(later.code).toBe(0);
+});
+
+it("--content-dir: --init creates the branch when the remote has none, then scrapes", async () => {
+  const s = scenario(false);
+  const missing = await runContent(s);
+  expect(missing.code).toBe(1);
+  expect(missing.err).toContain("--init");
+  expect(git(s.bare, "branch", "--list", "content")).toBe("");
+
+  const init = await runContent(s, ["--init"]);
+  expect(init.err).toBe("");
+  expect(init.code).toBe(0);
+  expect(init.out).toContain("Created the `content` branch");
+  expect(originFiles(s).some((f) => f.startsWith("raw/"))).toBe(true);
+  const first = git(s.bare, "rev-list", "--max-parents=0", "content");
+  expect(git(s.bare, "ls-tree", "-r", "--name-only", first)).toBe("");
+  expect(git(s.bare, "log", "-1", "--format=%s", first)).toBe("Create the content branch");
+  expect(git(s.bare, "log", "-1", "--format=%an <%ae>", first)).toBe("Container Bot <bot@example.com>");
+  // Again: nothing to create.
+  const again = await runContent(s, ["--init"]);
+  expect(again.code).toBe(0);
+  expect(again.out).toContain("already has");
+});
+
+it("--content-dir: --dry-run commits locally only, --no-dispatch and the dispatch behave as in worktree mode", async () => {
+  const s = scenario();
+  const before = tip(s);
+  apiCalls.length = 0;
+  const dry = await runContent(s, ["--dry-run"], dispatchEnv());
+  expect(dry.code).toBe(0);
+  expect(dry.out).toContain("dry run");
+  expect(tip(s)).toBe(before);
+  expect(apiCalls).toHaveLength(0);
+  const nod = await runContent(s, ["--no-dispatch"], dispatchEnv());
+  expect(nod.code).toBe(0);
+  expect(apiCalls).toHaveLength(0);
+  expect(tip(s)).not.toBe(before);
+
+  const s2 = scenario();
+  const real = await runContent(s2, [], dispatchEnv("container-token-1"));
+  expect(real.code).toBe(0);
+  expect(real.out).toContain("deploy requested");
+  expect(apiCalls).toHaveLength(1);
+  expect((apiCalls[0] as ApiCall).headers["authorization"]).toBe("Bearer container-token-1");
+  expect(real.out + real.err).not.toContain("container-token-1");
+});
+
+it("--content-dir: derives the repository for the dispatch from the content remote", async () => {
+  const s = scenario();
+  // Pushes go to the bare repository; the remote address is a GitHub one.
+  const gh = "https://github.com/example-owner/example-repo.git";
+  const gitEnv = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `url.file://${s.bare}.insteadOf`, GIT_CONFIG_VALUE_0: gh };
+  apiCalls.length = 0;
+  const { SUBSTACKER_REPO: _unused, ...env } = dispatchEnv();
+  void _unused;
+  const r = await runContent(s, [], { ...env, ...gitEnv, SUBSTACKER_CONTENT_REMOTE: gh });
+  expect(r.err).toBe("");
+  expect(r.code).toBe(0);
+  expect(apiCalls.map((c) => c.url)).toEqual(["/repos/example-owner/example-repo/actions/workflows/publish.yml/dispatches"]);
+});
+
+it("--content-dir: refuses a plain http remote and a held lock", async () => {
+  const s = scenario();
+  const http = await runContent(s, [], { SUBSTACKER_CONTENT_REMOTE: "http://example.com/a/b.git" });
+  expect(http.code).toBe(1);
+  expect(http.err).toMatch(/https/);
+  expect((await runContent(s)).code).toBe(0);
+  const lock = join(dataDirOf(s), ".git", "substacker-scrape.lock");
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  const busy = await runContent(s);
+  expect(busy.code).toBe(2);
+  expect(busy.err).toMatch(/in progress/);
 });
