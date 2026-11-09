@@ -4,5 +4,6 @@
   "subscribeUrl": "https://example.substack.com/subscribe",
   "actions": [],
   "utmSource": "substacker",
+  "noindex": true,
   "hidden": []
 }

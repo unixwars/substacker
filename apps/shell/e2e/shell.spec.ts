@@ -1,5 +1,17 @@
 import { expect, test } from "@playwright/test";
 
+test("search engines are asked not to index the reader by default, and not when noindex is off", async ({ page }) => {
+  await page.goto("/main/");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+  await page.goto("/bare/");
+  await expect(page.locator('meta[name="robots"]')).toHaveCount(0);
+});
+
+test("the robots tag is in the static HTML, so it needs no JavaScript to be seen", async ({ request }) => {
+  const html = await (await request.get("/main/")).text();
+  expect(html).toMatch(/<meta name="robots" content="noindex"\s*\/?>/);
+});
+
 test("the page names the generator and its version in a meta tag", async ({ page }) => {
   await page.goto("/main/");
   await expect(page.locator('meta[name="generator"]')).toHaveAttribute("content", /^substacker \d+\.\d+\.\d+$/);

@@ -7,8 +7,15 @@ const none = () => undefined;
 describe("loadConfig", () => {
   it("reads the environment and applies defaults", () => {
     expect(loadConfig({ SUBSTACKER_CONFIG: JSON.stringify(valid) }, none)).toEqual({
-      ...valid, actions: [], utmSource: "substacker", hidden: [],
+      ...valid, actions: [], utmSource: "substacker", noindex: true, hidden: [],
     });
+  });
+  it("asks search engines not to index the reader unless told otherwise", () => {
+    expect(loadConfig({ SUBSTACKER_CONFIG: JSON.stringify(valid) }, none).noindex).toBe(true);
+    expect(loadConfig({ SUBSTACKER_CONFIG: JSON.stringify({ ...valid, noindex: false }) }, none).noindex).toBe(false);
+  });
+  it("rejects a noindex that is not a boolean", () => {
+    expect(() => loadConfig({ SUBSTACKER_CONFIG: JSON.stringify({ ...valid, noindex: "no" }) }, none)).toThrow(ConfigError);
   });
   it("reads the local file", () => {
     const read = (p: string) => (p === "substacker.config.local.json" ? JSON.stringify({ ...valid, hidden: ["x"], actions: ["share"] }) : undefined);

@@ -7,6 +7,8 @@ export const ShellConfigSchema = z.object({
   subscribeUrl: z.string().optional(),
   actions: z.array(z.enum(["comment", "share"])).default([]),
   utmSource: z.string().min(1).default("substacker"),
+  /** Ask search engines not to index the reader (a robots meta tag, added at build time). On by default. */
+  noindex: z.boolean().default(true),
   /** Cap on posts and images kept for offline reading. Default 50 MB. */
   offlineCapBytes: z.number().int().nonnegative().optional(),
 });

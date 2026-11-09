@@ -17,6 +17,8 @@ export const ConfigSchema = z.object({
   subscribeUrl: httpUrl.optional(),
   actions: z.array(z.enum(["comment", "share"])).default([]),
   utmSource: z.string().min(1).default("substacker"),
+  /** Ask search engines not to index the reader. On by default: it is a second public copy of the posts. */
+  noindex: z.boolean().default(true),
   hidden: z.array(z.string()).default([]),
   /** Image downloads in flight at once (at most 2 per host). */
   maxConcurrentDownloads: z.number().int().min(1).max(8).optional(),

@@ -7,7 +7,7 @@ import type { BackupReader, Change, ScrapeDeps } from "./scrape.js";
 import { ScrapeError, scrape as realScrape } from "./scrape.js";
 import { feedXml, fixtureFeed } from "./test-support/feeds.js";
 
-const config: Config = { feedUrl: "https://example.substack.com/feed", feedName: "T", actions: [], utmSource: "substacker", hidden: [] };
+const config: Config = { feedUrl: "https://example.substack.com/feed", feedName: "T", actions: [], utmSource: "substacker", noindex: true, hidden: [] };
 
 // No real waiting in tests: the pauses and backoffs are skipped.
 const scrape = (c: Config, d: ScrapeDeps) => realScrape(c, { sleep: async () => undefined, ...d });

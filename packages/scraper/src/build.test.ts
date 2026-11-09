@@ -9,7 +9,7 @@ import { imageUrls } from "./derive.js";
 import { parseFeed } from "./feed.js";
 import { fixtureFeed } from "./test-support/feeds.js";
 
-const config: Config = { feedUrl: "https://example.substack.com/feed", feedName: "Example Newsletter", actions: [], utmSource: "substacker", hidden: [] };
+const config: Config = { feedUrl: "https://example.substack.com/feed", feedName: "Example Newsletter", actions: [], utmSource: "substacker", noindex: true, hidden: [] };
 let dir = "";
 
 function seed(withImages: boolean) {

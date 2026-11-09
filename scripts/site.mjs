@@ -29,7 +29,7 @@ export async function scraperModule(name) {
 
 /** The shell's `config.json` for a resolved scraper configuration. */
 export function shellConfigFor(config, extra = {}) {
-  const shell = { contentUrl: "content/", feedName: config.feedName, actions: config.actions, utmSource: config.utmSource };
+  const shell = { contentUrl: "content/", feedName: config.feedName, actions: config.actions, utmSource: config.utmSource, noindex: config.noindex };
   if (config.subscribeUrl) shell.subscribeUrl = config.subscribeUrl;
   return { ...shell, ...extra };
 }
