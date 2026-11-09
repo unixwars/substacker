@@ -37,3 +37,6 @@ test-results/
 
 # Local, publication-specific settings (template: substacker.config.example.json)
 substacker.config.local.json
+
+# Shell end-to-end scratch site
+.e2e/

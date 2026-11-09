@@ -1,0 +1,92 @@
+name: publish
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+# Two runs must not race to commit; a run in progress is never cancelled.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # A fork gets only the default branch: create the orphan `content` branch
+      # (one empty commit) if it is missing. Never touches an existing one.
+      - name: Create the content branch if missing
+        run: |
+          if ! git ls-remote --exit-code --heads origin content >/dev/null 2>&1; then
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            commit="$(git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$empty_tree" -m 'Create the content branch')"
+            git push origin "$commit:refs/heads/content"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: content
+          path: content
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w substacker-core -w substacker-scraper
+
+      # The steps live in scripts/publish.mjs, which the dry run (npm run publish:dry-run)
+      # runs too, so the two cannot drift. The scraper is run by path, never through npx.
+      # The mode is the repository variable SUBSTACKER_SCRAPE, read by the script: `local`
+      # (the default, variable unset) skips the next two steps, because a machine you control
+      # runs `npm run scrape:local` and pushes the backup to `content`; `ci` scrapes here
+      # (idempotent: nothing new writes nothing; a 403 from this network says to set up
+      # the relay) and commits.
+      - name: Scrape the feed into the backup (ci mode only)
+        run: node scripts/publish.mjs scrape --backup content
+        env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
+          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+          SUBSTACKER_RELAY_SECRET: ${{ secrets.SUBSTACKER_RELAY_SECRET }}
+
+      - name: Commit the backup if it changed (ci mode only)
+        run: node scripts/publish.mjs commit --backup content --push
+        env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
+
+      # In local mode, fails with the way out if no scrape has been pushed yet.
+      - name: Check that the backup has posts
+        run: node scripts/publish.mjs check --backup content
+        env:
+          SUBSTACKER_SCRAPE: ${{ vars.SUBSTACKER_SCRAPE }}
+
+      # One Pages site: the shell at the root (config.json written from the resolved
+      # configuration), the served files derived from the backup under /content/.
+      - name: Build the shell and derive the served content
+        run: node scripts/publish.mjs site --backup content --out site
+        env:
+          SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}
+      - name: Report the site size (fails above 800 MB)
+        run: node scripts/publish.mjs size --out site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

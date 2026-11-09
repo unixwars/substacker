@@ -1,0 +1,32 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - name: Check the tag matches the package version
+        run: |
+          version="$(node -p "require('./packages/core/package.json').version")"
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "Tag $GITHUB_REF_NAME does not match packages/core version $version"; exit 1; }
+      - run: npm run typecheck && npm run lint && npm run test:unit
+      # Includes packing substacker-core, installing the tarball in an empty project and importing every subpath.
+      - run: npm run test:integration
+      - name: Pack substacker-core
+        run: npm pack -w substacker-core --pack-destination .
+      - name: Create the GitHub Release with the tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" substacker-core-*.tgz --title "$GITHUB_REF_NAME" --generate-notes
