@@ -22,7 +22,8 @@
     "test:integration": "npm run build && vitest run --config vitest.integration.config.ts",
     "test:e2e": "npm run test:e2e --workspaces --if-present",
     "publish:dry-run": "node scripts/publish-dry-run.mjs",
-    "scrape:local": "node scripts/scrape-local.mjs"
+    "scrape:local": "node scripts/scrape-local.mjs",
+    "backfill": "node scripts/backfill-export.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
