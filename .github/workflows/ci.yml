@@ -130,7 +130,9 @@ jobs:
       - uses: actions/checkout@v4
       # linux/amd64 only; the arm64 image (the target host) is not built in CI.
       - name: Build the image
-        run: docker build -f deploy/Dockerfile -t substacker:ci .
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          docker build -f deploy/Dockerfile --build-arg VERSION="$version" -t substacker:ci .
       - name: Smoke test
         run: |
           set -eu
@@ -142,6 +144,16 @@ jobs:
 
           echo "The entrypoint answers --help"
           docker run --rm $img --help | grep -q 'scrape-loop.mjs'
+
+          echo "The image is labelled with the package version"
+          want="$(node -p "require('./package.json').version")"
+          label=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' $img)
+          if [ "$label" != "$want" ]; then echo "image version label is '$label', package version is '$want'"; exit 1; fi
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' $img)" = "substacker-scraper"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' $img)" = "https://github.com/unixwars/substacker"
+
+          echo "The entrypoint reports the same version"
+          test "$(run node $img scripts/scrape-loop.mjs --version)" = "substacker-scrape-loop $want"
 
           echo "The runtime user is not root"
           user=$(docker image inspect --format '{{.Config.User}}' $img)

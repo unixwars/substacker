@@ -221,12 +221,14 @@ The commands are for rootless podman 5 as your normal user. Replace `<you>/<your
 mkdir -p ~/substacker-src
 podman run --rm -v ~/substacker-src:/src:Z -w / docker.io/library/node:26 \
   git clone --depth 1 --branch main https://github.com/<you>/<your-fork>.git /src
-podman build -f ~/substacker-src/deploy/Dockerfile -t substacker ~/substacker-src
-podman image inspect substacker --format '{{.Architecture}} {{.Config.User}}'   # expect arm64 (on Ampere) and the non-root user
+# VERSION only labels the image; read it from the clone (no Node needed on the host)
+VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' ~/substacker-src/package.json)"
+podman build -f ~/substacker-src/deploy/Dockerfile --build-arg VERSION="$VERSION" -t substacker ~/substacker-src
+podman image inspect substacker --format '{{.Architecture}} {{.Config.User}} {{index .Config.Labels "org.opencontainers.image.version"}}'   # expect arm64 (on Ampere), the non-root user and the version
 rm -rf ~/substacker-src
 ```
 
-Use another `--branch` to try one that is not merged yet. If the host has git, `podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main` does the same in one command. For a private fork, clone it yourself and build from the clone. The image is named `localhost/substacker`; there is no registry.
+Use another `--branch` to try one that is not merged yet (or `--branch v0.1.0` for a release tag; see [releasing.md](releasing.md)). The image carries the labels `org.opencontainers.image.version` (the `VERSION` build argument, `dev` if you leave it out), `.title` and `.source`. If the host has git, `podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main` does the same in one command (the version label is then `dev`). For a private fork, clone it yourself and build from the clone. The image is named `localhost/substacker`; there is no registry.
 
 **2. Create the secrets**, without anything entering the shell history. The configuration goes through a file only you can read (edit it from the template `substacker.config.example.json`), the token through a silent prompt:
 
@@ -296,7 +298,8 @@ If you later manage the host with Terraform, replace this with a Quadlet unit (`
 
 ```bash
 # fetch the source again as in step 1, then:
-podman build --pull=newer -f ~/substacker-src/deploy/Dockerfile -t substacker ~/substacker-src && rm -rf ~/substacker-src
+VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' ~/substacker-src/package.json)"
+podman build --pull=newer -f ~/substacker-src/deploy/Dockerfile --build-arg VERSION="$VERSION" -t substacker ~/substacker-src && rm -rf ~/substacker-src
 podman stop substacker && podman rm substacker
 # ...then the `podman run -d ...` command from step 4 again
 ```
