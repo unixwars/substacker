@@ -37,6 +37,9 @@ import { readIfExists, scraperDist, scraperModule } from "./site.mjs";
 
 const execFileP = promisify(execFile);
 
+/** What a SIGTERM or SIGINT must undo before exiting: stop the scraper child, release the lock. */
+const onStop = new Set();
+
 class Failure extends Error {
   constructor(message, code = 1) {
     super(message);
@@ -329,7 +332,12 @@ function acquireLock(repo, gitDir, local) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       writeFileSync(file, JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: "wx" });
-      return () => rmSync(file, { force: true });
+      const release = () => rmSync(file, { force: true });
+      onStop.add(release);
+      return () => {
+        onStop.delete(release);
+        release();
+      };
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
       const text = existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -346,6 +354,9 @@ function acquireLock(repo, gitDir, local) {
 function run(cmd, args, { cwd, env }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const stop = () => child.kill("SIGTERM");
+    onStop.add(stop);
+    child.on("exit", () => onStop.delete(stop));
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -359,6 +370,12 @@ function run(cmd, args, { cwd, env }) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.on(signal, () => {
+      for (const undo of onStop) undo();
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    });
+  }
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (e) => {
