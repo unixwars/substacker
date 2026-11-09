@@ -121,3 +121,48 @@ jobs:
             apps/shell/playwright-report/
             apps/shell/test-results/
           if-no-files-found: warn
+
+  container:
+    name: Container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # linux/amd64 only; the arm64 image (the target host) is not built in CI.
+      - name: Build the image
+        run: docker build -f deploy/Dockerfile -t substacker:ci .
+      - name: Smoke test
+        run: |
+          set -eu
+          img=substacker:ci
+          run() { docker run --rm --entrypoint "$@"; }
+
+          echo "A fresh container is healthy"
+          run node $img scripts/healthcheck.mjs
+
+          echo "The entrypoint answers --help"
+          docker run --rm $img --help | grep -q 'scrape-loop.mjs'
+
+          echo "The runtime user is not root"
+          user=$(docker image inspect --format '{{.Config.User}}' $img)
+          test "$user" = "10001:10001"
+          test "$(run id $img -u)" = "10001"
+
+          echo "No .git, local configuration or test files in the application directory"
+          found=$(run find $img /app /data \( -path /app/node_modules -prune \) -o \( -name .git -o -name 'substacker.config*local*' -o -name '*.test.*' -o -name '.env*' \) -print)
+          if [ -n "$found" ]; then echo "unexpected files:"; echo "$found"; exit 1; fi
+
+          echo "No dev dependencies"
+          for pkg in typescript vitest eslint; do
+            if run node $img -e "require.resolve('$pkg')" 2>/dev/null; then echo "$pkg is installed"; exit 1; fi
+          done
+
+          echo "No token or configuration in the image's environment"
+          env_json=$(docker image inspect --format '{{json .Config.Env}}' $img)
+          if echo "$env_json" | grep -Eq 'SUBSTACKER_(DISPATCH_TOKEN|CONFIG)=|GITHUB_TOKEN|GH_TOKEN'; then echo "secret-like variable baked in"; exit 1; fi
+
+          echo "The credential helper hands git the token from the environment"
+          printf 'protocol=https\nhost=github.com\n\n' | docker run --rm -i -e SUBSTACKER_DISPATCH_TOKEN=ci-token-value --entrypoint git $img credential fill | grep -qx 'password=ci-token-value'
+
+          echo "The image declares a health check"
+          test "$(docker image inspect --format '{{len .Config.Healthcheck.Test}}' $img)" -gt 0
