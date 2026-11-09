@@ -14,6 +14,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 const root = join(import.meta.dirname, "..");
 const loop = join(root, "scripts", "scrape-loop.mjs");
 const healthcheck = join(root, "scripts", "healthcheck.mjs");
+const local = join(root, "scripts", "scrape-local.mjs");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const fixture = readFileSync(join(root, "packages", "scraper", "test", "fixtures", "feed.xml"), "utf8");
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "base64");
@@ -170,6 +171,26 @@ it("rejects an unknown argument and a bad schedule", async () => {
   const bad = await runNode(loop, [], envFor(s, { SUBSTACKER_SCHEDULE_UTC: "25:00" }));
   expect(bad.code).toBe(2);
   expect(bad.err).toContain("SUBSTACKER_SCHEDULE_UTC");
+});
+
+const rootVersion = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
+
+it("--version prints the name and version and exits 0 without needing any configuration", async () => {
+  const r = await runNode(loop, ["--version"], { PATH: process.env["PATH"] });
+  expect(r.code).toBe(0);
+  expect(r.out.trim()).toBe(`substacker-scrape-loop ${rootVersion}`);
+  const l = await runNode(local, ["--version"], { PATH: process.env["PATH"] });
+  expect(l.code).toBe(0);
+  expect(l.out.trim()).toBe(`substacker-scrape-local ${rootVersion}`);
+});
+
+it("logs `substacker <version> started` once at start", async () => {
+  const s = scenario();
+  const l = startLoop(envFor(s));
+  await l.waitFor(/next scrape at/);
+  l.child.kill("SIGTERM");
+  await l.exited;
+  expect(l.output().match(new RegExp(`substacker ${rootVersion.replaceAll(".", "\\.")} started`, "g"))).toHaveLength(1);
 });
 
 it("the daily loop runs the scrape when the time comes, and keeps going", async () => {

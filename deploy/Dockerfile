@@ -1,8 +1,12 @@
 # The scraper as a long-running container: it scrapes the feed once a day and pushes the
 # backup to the `content` branch (scripts/scrape-loop.mjs). Build from the repository root:
 #
-#   podman build -f deploy/Dockerfile -t substacker .
+#   podman build -f deploy/Dockerfile -t substacker \
+#     --build-arg VERSION="$(node -p "require('./package.json').version")" .
 #   podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main
+#
+# VERSION only labels the image (org.opencontainers.image.version); a Dockerfile cannot
+# read package.json, so it defaults to "dev" when the argument is not given.
 #
 # The image holds code and nothing else: no configuration, no token, no .git. The
 # configuration (SUBSTACKER_CONFIG), the token (SUBSTACKER_DISPATCH_TOKEN) and the
@@ -23,6 +27,10 @@ RUN npm run build -w substacker-core -w substacker-scraper
 
 # ---- runtime ---------------------------------------------------------------------------
 FROM node:26-slim
+ARG VERSION=dev
+LABEL org.opencontainers.image.title=substacker-scraper \
+      org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.source=https://github.com/unixwars/substacker
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \

@@ -25,7 +25,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { scraperModule } from "./site.mjs";
+import { packageVersion, scraperModule } from "./site.mjs";
 
 const scrapeScript = join(dirname(fileURLToPath(import.meta.url)), "scrape-local.mjs");
 /** How long a scrape gets to stop after SIGTERM before it is killed. */
@@ -38,10 +38,14 @@ export function startMarkerPath(env) {
 }
 
 export async function main(argv, env = process.env) {
+  if (argv.includes("--version")) {
+    console.log(`substacker-scrape-loop ${packageVersion()}`);
+    return 0;
+  }
   const sched = await scraperModule("schedule");
   const onceAt = argv.indexOf("--once");
   if (argv.includes("--help") || (onceAt < 0 && argv.length > 0)) {
-    const usage = "Usage: node scripts/scrape-loop.mjs [--once [--init] [--dry-run] [--no-dispatch]]";
+    const usage = "Usage: node scripts/scrape-loop.mjs [--once [--init] [--dry-run] [--no-dispatch]] [--version]";
     if (argv.includes("--help")) {
       console.log(usage);
       return 0;
@@ -179,7 +183,8 @@ export async function main(argv, env = process.env) {
     log(`could not write the start marker: ${e instanceof Error ? e.message : String(e)}`);
   }
   const testDelay = env["SUBSTACKER_TEST_NEXT_RUN_MS"] ? Number(env["SUBSTACKER_TEST_NEXT_RUN_MS"]) : undefined;
-  log(`started; schedule ${String(config.schedule.hour).padStart(2, "0")}:${String(config.schedule.minute).padStart(2, "0")} UTC, jitter up to ${config.jitter} min, data in ${dataDir}`);
+  log(`substacker ${packageVersion()} started`);
+  log(`schedule ${String(config.schedule.hour).padStart(2, "0")}:${String(config.schedule.minute).padStart(2, "0")} UTC, jitter up to ${config.jitter} min, data in ${dataDir}`);
 
   if (env["SUBSTACKER_RUN_ON_START"] === "1") await runWithRetries();
   while (!stopping) {

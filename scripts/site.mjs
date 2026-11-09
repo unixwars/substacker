@@ -12,6 +12,11 @@ export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const shellDir = join(root, "apps", "shell");
 export const scraperDist = join(root, "packages", "scraper", "dist");
 
+/** The release number, from the root package.json (shipped in the container image too). */
+export function packageVersion() {
+  return JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+}
+
 /** Pages allows about 1 GB; the workflow fails above this. */
 export const SITE_LIMIT_BYTES = 800 * 1024 * 1024;
 

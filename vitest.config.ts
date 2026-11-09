@@ -14,7 +14,7 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.{ts,tsx}"],
+    include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.{ts,tsx}", "scripts/*.test.mjs"],
     exclude: ["**/*.integration.test.ts", "**/node_modules/**", "**/dist/**", "apps/*/e2e/**"],
     coverage: {
       provider: "v8",

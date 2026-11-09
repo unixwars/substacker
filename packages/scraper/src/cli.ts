@@ -5,6 +5,7 @@ import { build } from "./build.js";
 import { loadConfig } from "./config.js";
 import { createPinnedFetch } from "./net.js";
 import { scrape } from "./scrape.js";
+import { VERSION } from "./version.js";
 
 function option(args: string[], name: string, fallback: string): string {
   const i = args.indexOf(name);
@@ -15,8 +16,12 @@ function option(args: string[], name: string, fallback: string): string {
 const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, "utf8") : undefined);
 
 export async function runScrape(args: string[], env: Record<string, string | undefined>): Promise<number> {
+  if (args.includes("--version")) {
+    console.log(`substacker-scrape ${VERSION}`);
+    return 0;
+  }
   if (args.includes("--help")) {
-    console.log("Usage: substacker-scrape [--backup <dir>]\nReads the feed and writes raw items and images into <dir> (default: content).");
+    console.log("Usage: substacker-scrape [--backup <dir>] [--version]\nReads the feed and writes raw items and images into <dir> (default: content).");
     return 0;
   }
   const dir = option(args, "--backup", "content");
@@ -32,8 +37,12 @@ export async function runScrape(args: string[], env: Record<string, string | und
 }
 
 export function runBuild(args: string[], env: Record<string, string | undefined>): number {
+  if (args.includes("--version")) {
+    console.log(`substacker-build ${VERSION}`);
+    return 0;
+  }
   if (args.includes("--help")) {
-    console.log("Usage: substacker-build [--backup <dir>] [--out <dir>]\nDerives the served files from the backup into <out> (default: site/content).");
+    console.log("Usage: substacker-build [--backup <dir>] [--out <dir>] [--version]\nDerives the served files from the backup into <out> (default: site/content).");
     return 0;
   }
   const backup = option(args, "--backup", "content");
