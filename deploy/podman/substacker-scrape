@@ -1,0 +1,31 @@
+#!/bin/sh
+# Run `npm run scrape:local` (scripts/scrape-local.mjs) inside a throwaway container,
+# so nothing but this wrapper and a cron or timer entry lives on the host.
+# See docs/setup.md, "3d. In a container, with podman".
+#
+# Defaults can be overridden from the environment:
+#   SUBSTACKER_DIR       checkout, mounted at /app   (default: $HOME/substacker)
+#   SUBSTACKER_ENV_FILE  KEY=value file with SUBSTACKER_DISPATCH_TOKEN   (default: $HOME/.config/substacker/env)
+#   SUBSTACKER_IMAGE     image with node and git     (default: docker.io/library/node:26, the current LTS)
+#   SUBSTACKER_ENGINE    podman or docker            (default: podman)
+# Arguments are passed to the script: --init, --dry-run, --no-dispatch.
+set -eu
+
+app_dir="${SUBSTACKER_DIR:-$HOME/substacker}"
+env_file="${SUBSTACKER_ENV_FILE:-$HOME/.config/substacker/env}"
+image="${SUBSTACKER_IMAGE:-docker.io/library/node:26}"
+engine="${SUBSTACKER_ENGINE:-podman}"
+
+[ -d "$app_dir" ] || { echo "substacker-scrape: no checkout at $app_dir (set SUBSTACKER_DIR)" >&2; exit 1; }
+[ -f "$env_file" ] || { echo "substacker-scrape: no env file at $env_file (see docs/setup.md, 3d)" >&2; exit 1; }
+
+# The token (Contents and Actions, read and write) is both the HTTPS push credential
+# and the credential for the deploy dispatch. It reaches git through a credential
+# helper that reads it from the container's environment; it is never written to disk.
+# :Z relabels the checkout for SELinux (needed on Oracle Linux, harmless elsewhere).
+exec "$engine" run --rm --security-opt no-new-privileges \
+  -v "$app_dir:/app:Z" -w /app \
+  --env-file "$env_file" \
+  -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=credential.helper \
+  -e 'GIT_CONFIG_VALUE_0=!f() { echo username=x-access-token; echo "password=$SUBSTACKER_DISPATCH_TOKEN"; }; f' \
+  "$image" node scripts/scrape-local.mjs "$@"

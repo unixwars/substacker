@@ -190,6 +190,63 @@ systemctl --user start substacker-scrape.service     # run it now
 
 **Nothing deployment-specific is committed.** The feed address, the name and the token are in your gitignored config file, the `SUBSTACKER_CONFIG` variable and a private env file. The `content` branch holds only generated data, and no workflow file is ever put on it.
 
+## 3d. In a container, with podman
+
+For a host where you do not want to install Node or run services directly (a small cloud instance that runs other containers, say), run the same `scrape:local` in a throwaway container. There is no image to build and no registry: the official `node` image (the full one, not `-slim`, because it includes `git`) has an arm64 variant, so it runs natively on Ampere. The checkout lives on the host and is mounted at `/app`; [`deploy/podman/substacker-scrape`](../deploy/podman/substacker-scrape) is the whole wrapper. The only things on the host are that script and a cron (or timer) entry.
+
+Run the checkout **only through the container**: git records the worktree of `content` with absolute paths (`/app/...`), so using it from the host later would confuse git.
+
+The commands below are for rootless podman as your normal user. They assume nothing about your Terraform or other containers. Replace the clone URL with your fork's.
+
+```bash
+# 1. Code. The container does the clone and the install, so the host needs no git or node.
+mkdir -p ~/substacker
+podman run --rm -v ~/substacker:/app:Z -w / docker.io/library/node:26 \
+  git clone --branch main https://github.com/<you>/<your-fork>.git /app
+
+# 2. Install and build only what the scraper needs.
+podman run --rm -v ~/substacker:/app:Z -w /app docker.io/library/node:26 \
+  sh -c 'npm ci -w substacker-core -w substacker-scraper && npm run build -w substacker-core -w substacker-scraper'
+
+# 3. Configuration (gitignored) and the git identity for the backup commits (stored in the checkout's .git/config).
+cp ~/substacker/substacker.config.example.json ~/substacker/substacker.config.local.json
+chmod 600 ~/substacker/substacker.config.local.json && ${EDITOR:-vi} ~/substacker/substacker.config.local.json
+podman run --rm -v ~/substacker:/app:Z -w /app docker.io/library/node:26 \
+  sh -c 'git config user.name "Your Name" && git config user.email "you@example.com"'
+
+# 4. The token: one secret for both the push and the deploy dispatch. See "The dispatch token" in 3c;
+#    this one needs Contents: read and write as well as Actions: read and write, because it is also the push credential.
+mkdir -p ~/.config/substacker && umask 077
+read -rs -p "Token: " t && printf 'SUBSTACKER_DISPATCH_TOKEN=%s\n' "$t" > ~/.config/substacker/env; unset t
+
+# 5. The wrapper.
+mkdir -p ~/bin && cp ~/substacker/deploy/podman/substacker-scrape ~/bin/ && chmod +x ~/bin/substacker-scrape
+```
+
+**First run.** `--dry-run` scrapes and commits locally and pushes nothing; the second command creates `origin/content` if it is missing and pushes the backup (do the `content` ruleset of step 4 first if you want it protected from the start):
+
+```bash
+~/bin/substacker-scrape --dry-run
+~/bin/substacker-scrape --init --no-dispatch
+```
+
+**Schedule**, one line in `crontab -e`:
+
+```cron
+17 4 * * * $HOME/bin/substacker-scrape >> $HOME/.cache/substacker.log 2>&1
+```
+
+**Why the token must be tightly scoped.** It can write to the repository, and `main` holds the workflows. Limit it to this repository, give it an expiry, and add a ruleset on `main` and `dev` that requires a pull request with no bypass for you, so the token can write `content` and nothing else.
+
+**Notes.**
+
+- `:Z` relabels `~/substacker` for SELinux (Oracle Linux enforces it); keep that directory dedicated to this.
+- To update: pull the code with `podman run ... git pull` and repeat the install and build step. `podman pull docker.io/library/node:26` refreshes the base image; roughly monthly is fine. The floating tag is acceptable for a personal job; pin a digest if you want strictness.
+- Anonymous pulls from Docker Hub can hit a rate limit; `podman login docker.io`, or set `SUBSTACKER_IMAGE` to a mirror, fixes that.
+- `SUBSTACKER_DIR`, `SUBSTACKER_ENV_FILE`, `SUBSTACKER_IMAGE` and `SUBSTACKER_ENGINE` (`docker` works too) override the wrapper's defaults.
+- The wrapper has been checked for syntax and for the arguments it passes to the engine; a real podman run is yours to confirm.
+- If you later manage the host with Terraform, this converts to a Quadlet unit with the same image, mounts and environment.
+
 ## 4. Protect the `content` branch
 
 It is the only copy of posts older than the feed window (the feed carries about the latest 20). Add a repository ruleset on `content` that blocks force pushes and deletion. Nothing in the project rewrites its history. A ruleset can only be applied by a repository admin, so this is a manual step.
