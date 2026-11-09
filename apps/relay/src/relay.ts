@@ -1,3 +1,5 @@
+import { VERSION } from "./version.js";
+
 /** The Worker's environment: a secret binding and a plain variable. */
 export interface Env {
   /** Shared secret callers present in `x-relay-secret` (a Worker secret). */
@@ -6,7 +8,7 @@ export interface Env {
   ALLOWED_HOST: string;
 }
 
-export const VERSION = "0.1.0";
+export { VERSION };
 /** The relay says what it is; it never pretends to be a browser or another agent. */
 export const USER_AGENT = `substacker-relay/${VERSION}`;
 /** Largest body passed through. A feed of the latest 20 posts is far below this. */

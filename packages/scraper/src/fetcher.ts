@@ -1,4 +1,5 @@
 import { checkUrlShape } from "./address.js";
+import { VERSION } from "./version.js";
 
 export class FetchError extends Error {
   constructor(message: string) {
@@ -146,7 +147,7 @@ export class Fetcher {
       const res = await this.o.fetch(url.toString(), {
         redirect: "manual",
         signal: AbortSignal.timeout(opts.timeoutMs),
-        headers: { "user-agent": this.o.userAgent ?? "substacker-scraper/0.1 (+https://github.com/unixwars/substacker)", ...opts.headers },
+        headers: { "user-agent": this.o.userAgent ?? `substacker-scraper/${VERSION} (+https://github.com/unixwars/substacker)`, ...opts.headers },
       });
       if (res.status >= 200 && res.status < 300) return { status: res.status, headers: res.headers, body: await readCapped(res, opts.maxBytes) };
       await res.body?.cancel().catch(() => undefined);

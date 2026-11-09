@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-/** Version of the content contract this build of the core understands. */
+/**
+ * Version of the content contract (the format of the served files) this build of the core
+ * understands. Not the package release: that is `VERSION`.
+ */
 export const CONTRACT_VERSION = 1;
 
 const version = z.number().int().nonnegative();

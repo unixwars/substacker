@@ -1,7 +1,7 @@
 {
   "name": "substacker-monorepo",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Back up a Substack as static files and read it offline.",
   "license": "MIT",
