@@ -6,7 +6,7 @@
   "description": "Back up a Substack as static files and read it offline.",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   },
   "workspaces": [
     "packages/core",

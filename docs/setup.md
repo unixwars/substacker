@@ -223,7 +223,7 @@ The same ruleset logic applies to `main` if you like (require the `CI` workflow 
 
 ## Local development
 
-Prerequisites: Node.js 22 or newer and npm. There is no Docker and no database.
+Prerequisites: Node.js 26 or newer (the current LTS; 22 reaches end of life in 2027) and npm. There is no Docker and no database.
 
 ```bash
 git clone https://github.com/unixwars/substacker.git

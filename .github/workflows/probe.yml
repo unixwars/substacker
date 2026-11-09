@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
       - run: node probes/probe.mjs
         env:
           SUBSTACKER_CONFIG: ${{ vars.SUBSTACKER_CONFIG }}

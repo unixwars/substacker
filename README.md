@@ -31,7 +31,7 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 
 ### Prerequisites
 
-- Node.js 22 or newer (CI uses 22)
+- Node.js 26 or newer, the current LTS (CI uses 26)
 - npm (ships with Node)
 
 There is no Docker, no database and no other service.
@@ -61,7 +61,7 @@ Unit tests are `*.test.ts` beside the code; integration tests are `*.integration
 
 ## Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request, on pushes to `main` and `dev`, and on demand. Each job installs with `npm ci` on Node 22 with the npm cache:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request, on pushes to `main` and `dev`, and on demand. Each job installs with `npm ci` on Node 26 with the npm cache:
 
 1. **Typecheck and lint:** `npm run typecheck`, `npm run lint`.
 2. **Dependency audit:** `npm audit --omit=dev --audit-level=high`, as its own job so the result is reported separately.
