@@ -204,9 +204,9 @@ mkdir -p ~/substacker
 podman run --rm -v ~/substacker:/app:Z -w / docker.io/library/node:26 \
   git clone --branch main https://github.com/<you>/<your-fork>.git /app
 
-# 2. Install and build only what the scraper needs.
+# 2. Install and build only what the scraper needs (--include-workspace-root brings the root's TypeScript, which -w alone leaves out).
 podman run --rm -v ~/substacker:/app:Z -w /app docker.io/library/node:26 \
-  sh -c 'npm ci -w substacker-core -w substacker-scraper && npm run build -w substacker-core -w substacker-scraper'
+  sh -c 'npm ci -w substacker-core -w substacker-scraper --include-workspace-root && npm run build -w substacker-core -w substacker-scraper'
 
 # 3. Configuration (gitignored) and the git identity for the backup commits (stored in the checkout's .git/config).
 cp ~/substacker/substacker.config.example.json ~/substacker/substacker.config.local.json
