@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+test("the page names the generator and its version in a meta tag", async ({ page }) => {
+  await page.goto("/main/");
+  await expect(page.locator('meta[name="generator"]')).toHaveAttribute("content", /^substacker \d+\.\d+\.\d+$/);
+});
+
 test.describe("list", () => {
   test("shows the posts newest first", async ({ page }) => {
     await page.goto("/main/");

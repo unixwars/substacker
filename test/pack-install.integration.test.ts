@@ -48,6 +48,22 @@ it("imports every subpath of the installed tarball", () => {
   }
 });
 
+it("exports VERSION equal to the package version from the installed tarball", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "packages/core/package.json"), "utf8")) as { version: string };
+  const installed = JSON.parse(readFileSync(join(project, "node_modules/substacker-core/package.json"), "utf8")) as { version: string };
+  expect(installed.version).toBe(pkg.version);
+  const out = run("node", ["--input-type=module", "-e", `const m = await import("substacker-core"); console.log(m.VERSION)`], project);
+  expect(out.trim()).toBe(pkg.version);
+});
+
+it("the built substacker-scrape and substacker-build answer --version", () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string };
+  for (const [bin, file] of [["substacker-scrape", "scrape.js"], ["substacker-build", "build.js"]] as const) {
+    const out = run("node", [join(root, "packages/scraper/dist/bin", file), "--version"], work);
+    expect(out.trim()).toBe(`${bin} ${pkg.version}`);
+  }
+});
+
 it("does not ship tests or sources", () => {
   const listing = run("tar", ["-tzf", tarball], work);
   expect(listing).not.toMatch(/\.test\./);

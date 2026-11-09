@@ -2,7 +2,7 @@
 // timer): GitHub's runners and the relay are refused by the feed, so the backup is made
 // here and pushed to the `content` branch, and GitHub Actions only builds and deploys.
 //
-//   node scripts/scrape-local.mjs [--init] [--no-dispatch] [--dry-run] [--content-dir <path> [--remote <url>]]
+//   node scripts/scrape-local.mjs [--init] [--no-dispatch] [--dry-run] [--content-dir <path> [--remote <url>]] [--version]
 //
 //   --init         create the orphan `content` branch (one empty commit) on origin, if missing
 //   --no-dispatch  push, but do not ask GitHub to run the publish workflow
@@ -33,7 +33,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { readIfExists, scraperDist, scraperModule } from "./site.mjs";
+import { packageVersion, readIfExists, scraperDist, scraperModule } from "./site.mjs";
 
 const execFileP = promisify(execFile);
 
@@ -48,12 +48,16 @@ class Failure extends Error {
 }
 
 export async function main(argv, env = process.env) {
+  if (argv.includes("--version")) {
+    console.log(`substacker-scrape-local ${packageVersion()}`);
+    return 0;
+  }
   const local = await scraperModule("local");
   const parsed = local.parseScrapeArgs(argv);
   if (!parsed.ok) throw new Failure(parsed.message, 2);
   const { init, dryRun, noDispatch, help, contentDir, remote: remoteFlag } = parsed.options;
   if (help) {
-    console.log("Usage: node scripts/scrape-local.mjs [--init] [--no-dispatch] [--dry-run] [--content-dir <path> [--remote <url>]]");
+    console.log("Usage: node scripts/scrape-local.mjs [--init] [--no-dispatch] [--dry-run] [--content-dir <path> [--remote <url>]] [--version]");
     return 0;
   }
 
