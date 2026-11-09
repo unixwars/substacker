@@ -14,7 +14,7 @@ export interface DeriveOptions {
   policy?: SanitizePolicy;
 }
 
-function bodyImageUrls(strippedHtml: string): string[] {
+export function bodyImageUrls(strippedHtml: string): string[] {
   const doc = new JSDOM(`<!doctype html><body>${strippedHtml}</body>`).window.document;
   return [...doc.querySelectorAll("img[src]")].map((img) => img.getAttribute("src") ?? "").filter(Boolean);
 }

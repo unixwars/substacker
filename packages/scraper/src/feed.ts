@@ -74,6 +74,11 @@ function str(value: unknown): string {
   return "";
 }
 
+/** Whether a slug may become a file name: not empty, not `.` or `..`, no separator and no NUL. */
+export function isSafeSlug(slug: string): boolean {
+  return slug !== "" && slug !== "." && slug !== ".." && !/[\\/\0]/.test(slug);
+}
+
 /** The slug of a post link: the segment after `/p/`, decoded. Null if the link is not a post. */
 export function slugFromLink(link: string): string | null {
   let pathname: string;
@@ -90,9 +95,7 @@ export function slugFromLink(link: string): string | null {
   } catch {
     return null;
   }
-  // The slug becomes a file name: refuse anything that could leave its directory.
-  if (slug === "." || slug === ".." || /[\\/\0]/.test(slug)) return null;
-  return slug;
+  return isSafeSlug(slug) ? slug : null;
 }
 
 /** Read the fields of one raw item. Throws FeedError if it is not a usable post. */
