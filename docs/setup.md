@@ -215,13 +215,18 @@ Inside the container, `scripts/scrape-loop.mjs` is the entry point. It runs `scr
 
 The commands are for rootless podman 5 as your normal user. Replace `<you>/<your-fork>` with your repository.
 
-**1. Build the image**, straight from the repository, with no clone on the host:
+**1. Build the image.** `podman build` can take a git URL, but it runs `git` on the host to fetch it; a host without git (as in the minimal case this section is for) fails with `exec: "git": executable file not found`. So fetch the source with the node container, build from that directory, and delete it:
 
 ```bash
-podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main
+mkdir -p ~/substacker-src
+podman run --rm -v ~/substacker-src:/src:Z -w / docker.io/library/node:26 \
+  git clone --depth 1 --branch main https://github.com/<you>/<your-fork>.git /src
+podman build -f ~/substacker-src/deploy/Dockerfile -t substacker ~/substacker-src
+podman image inspect substacker --format '{{.Architecture}} {{.Config.User}}'   # expect arm64 (on Ampere) and the non-root user
+rm -rf ~/substacker-src
 ```
 
-A ref other than `main` works the same way, which is how to try a branch that is not merged yet (`...git#feat/probe`). For a private fork, clone it first and build with `podman build -f deploy/Dockerfile -t substacker .` from the clone. The image is named `localhost/substacker`; there is no registry.
+Use another `--branch` to try one that is not merged yet. If the host has git, `podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main` does the same in one command. For a private fork, clone it yourself and build from the clone. The image is named `localhost/substacker`; there is no registry.
 
 **2. Create the secrets**, without anything entering the shell history. The configuration goes through a file only you can read (edit it from the template `substacker.config.example.json`), the token through a silent prompt:
 
@@ -290,7 +295,8 @@ If you later manage the host with Terraform, replace this with a Quadlet unit (`
 **Updating.** Rebuild from the URL, then recreate the container with the same flags (the volume keeps the clone, so nothing is cloned again):
 
 ```bash
-podman build --pull=newer -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main
+# fetch the source again as in step 1, then:
+podman build --pull=newer -f ~/substacker-src/deploy/Dockerfile -t substacker ~/substacker-src && rm -rf ~/substacker-src
 podman stop substacker && podman rm substacker
 # ...then the `podman run -d ...` command from step 4 again
 ```
@@ -301,7 +307,7 @@ A secret is read when the container is created, so to rotate the token: `podman 
 
 **What the image does not contain:** no configuration, no token, no `.git`, no tests, no dev dependencies, no workflow files. The build context is a whitelist (`.dockerignore`), so a stray `substacker.config.local.json` cannot enter it, and CI checks these properties on every change (the `container` job).
 
-**Not verified.** None of this has run on a real host yet. Specifically: the image has not been built or started by a container engine by the author (none was available); the Dockerfile's steps were reproduced with plain `npm` and `git` on a Node 26 machine, and the scheduler, the health check and the `--content-dir` mode are covered by tests against a local bare repository and a local feed, but not inside a container. CI builds `linux/amd64` only; arm64 (Oracle Ampere) is built by you, with the same Dockerfile. The podman flags above follow podman's documentation for version 5 and have not been tried under SELinux; building from a git URL, the secret-as-environment flags, `podman healthcheck run` and the `podman-restart.service` unit are the first things to confirm. A live push and dispatch from the container, a reboot, and an expired-token day are untested.
+**Not verified.** None of this has run on a real host yet. Specifically: the image has not been built or started by a container engine by the author (none was available); the Dockerfile's steps were reproduced with plain `npm` and `git` on a Node 26 machine, and the scheduler, the health check and the `--content-dir` mode are covered by tests against a local bare repository and a local feed, but not inside a container. CI builds `linux/amd64` only; arm64 (Oracle Ampere) is built by you, with the same Dockerfile. The podman flags above follow podman's documentation for version 5 and have not been tried under SELinux; the secret-as-environment flags, `podman healthcheck run` and the `podman-restart.service` unit are the first things to confirm. A live push and dispatch from the container, a reboot, and an expired-token day are untested.
 
 ## 4. Protect the `content` branch
 
