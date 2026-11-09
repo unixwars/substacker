@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src", "vite.config.ts", "vite-plugin-sw.ts", "vite-plugin-manifest.ts", "vite-plugin-generator.ts", "playwright.config.ts", "e2e"],
+  "exclude": ["src/sw/sw.ts"]
+}

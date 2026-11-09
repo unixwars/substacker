@@ -1,0 +1,17 @@
+// Each scenario is a complete static site: the shell, a config.json and a content directory
+// derived from the fixture feed.
+export const scenarios = {
+  // Everything on: actions, subscribe link.
+  main: { shell: { feedName: "Example Newsletter", subscribeUrl: "https://example.substack.com/subscribe", actions: ["comment", "share"], utmSource: "substacker" }, hidden: [] },
+  // No actions, no subscribe link, one hidden post.
+  bare: { shell: { feedName: "Bare Example Reader Weekly", actions: [], utmSource: "substacker" }, hidden: ["second-post"] },
+  // A feed with no posts.
+  empty: { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker" }, hidden: [], noPosts: true },
+};
+
+// A tiny offline cap, so opening a second post evicts the first.
+scenarios.capped = { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker", offlineCapBytes: 1 }, hidden: [] };
+
+// Served as the root of its own origin (port 4174), so its worker's scope is "/" and other
+// paths on that origin are not the shell's.
+scenarios.root = { shell: { feedName: "Example Newsletter", actions: [], utmSource: "substacker" }, hidden: [], extraPages: { "elsewhere/index.html": "<!doctype html><title>Elsewhere</title><h1>Another app</h1>\n" } };

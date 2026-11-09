@@ -1,0 +1,15 @@
+{
+  "name": "substacker-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that relays the feed fetch for callers with a shared secret.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.158.0"
+  }
+}
