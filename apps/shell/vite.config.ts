@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { generatorPlugin } from "./vite-plugin-generator.js";
+import { robotsPlugin } from "./vite-plugin-robots.js";
 import { manifestPlugin } from "./vite-plugin-manifest.js";
 import { serviceWorkerPlugin } from "./vite-plugin-sw.js";
 
@@ -11,7 +12,7 @@ const core = (p: string) => fileURLToPath(new URL(`../../packages/core/src/${p}`
 // under any path (a project Pages site is served under /<repository>/).
 export default defineConfig({
   base: process.env["SUBSTACKER_BASE"] ?? "/",
-  plugins: [react(), generatorPlugin(), manifestPlugin(), serviceWorkerPlugin()],
+  plugins: [react(), generatorPlugin(), robotsPlugin(), manifestPlugin(), serviceWorkerPlugin()],
   resolve: {
     alias: [
       { find: /^substacker-core\/dom$/, replacement: core("dom.ts") },

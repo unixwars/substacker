@@ -51,7 +51,7 @@ afterEach(async () => {
   rmSync(work, { recursive: true, force: true });
 });
 
-const config = (extra: Partial<Config> = {}): Config => ({ feedUrl: `${origin}/feed`, feedName: "T", actions: [], utmSource: "s", hidden: [], ...extra });
+const config = (extra: Partial<Config> = {}): Config => ({ feedUrl: `${origin}/feed`, feedName: "T", actions: [], utmSource: "s", noindex: true, hidden: [], ...extra });
 const deps = (sleeps: number[] = []) => ({
   fetch: createPinnedFetch({ allowPrivate: true }),
   allowPrivate: true,

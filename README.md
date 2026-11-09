@@ -16,6 +16,7 @@ Back up a Substack publication as static files, and read, search and browse it o
 - **A backup.** The raw feed items and their images, committed to a protected `content` branch. Every other file is derived from them and can be rebuilt.
 - **A static PWA reader.** Browse and search the posts, with previous and next, in your own theme, and read opened posts offline. No backend: it is served from GitHub Pages.
 - **A small core library.** The content format, search, sanitizing and headless React hooks, so another app can embed the reader and style it itself.
+- **Not a search-engine duplicate.** The reader asks search engines not to index it (`noindex`, on by default, configurable), since it is a second public copy of your posts; see [docs/setup.md](docs/setup.md).
 
 Out of scope: comments, likes and restacks (the reader links to the post on Substack for those), and paywalled content beyond the preview the feed carries.
 

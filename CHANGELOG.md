@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **`noindex` setting** (default `true`): the reader's page carries `<meta name="robots" content="noindex">` so search engines do not index this second public copy of the posts; `false` leaves the tag out. The tag was already present in the shell's HTML; it is now driven by the configuration, tested, and documented, including what it cannot cover on GitHub Pages (JSON and image files).
 - **Backfill from a Substack data export** (`npm run backfill`, `scripts/backfill-export.mjs`): a one-off tool that writes the older posts of an export (a zip) as `raw/<slug>.xml` items into a backup, so the daily scrape downloads their images and the build derives them unchanged. Dry run by default; `--write` never overwrites or deletes. It reads only `posts.csv` and `posts/<id>.<slug>.html`, refuses every other entry (subscriber lists, per-recipient data) before decompressing it, and imports only published, public newsletter posts. The items are synthesized (marked `<substacker:source>export</substacker:source>`), not received from the feed. It also reports the image hosts the old posts use. New dev dependency: `fflate`. See [docs/setup.md](docs/setup.md#backfilling-from-a-substack-export).
 
 ### Changed

@@ -45,6 +45,7 @@ Settings are not stored in the repository, so no publication is named in the cod
 | `actions` | Subset of `comment`, `share`. Empty by default. |
 | `utmSource` | Label for Substack's statistics. Default `substacker`. |
 | `hidden` | Slugs left out of every reader. The backup still keeps them. |
+| `noindex` | Default `true`. Adds `<meta name="robots" content="noindex">` to the reader's page so search engines do not index this second public copy of your posts (see "Search engines" below). Set `false` only if you want the reader indexed. |
 | `relayUrl` | Optional, `ci` mode only. The address of your deployed relay (step 3a). Must be https: the secret travels with every request. |
 | `maxConcurrentDownloads` | Optional, 1 to 8, default 4. Image downloads in flight at once (never more than 2 per host). |
 
@@ -422,6 +423,16 @@ node scripts/publish-dry-run.mjs --mode ci --workdir /tmp/dry   # run twice: the
 ## 5. If the schedule lapses
 
 GitHub disables scheduled workflows after 60 days without repository activity. If the daily run stops, re-enable it in the Actions tab or run it by hand. In `local` mode, whether your pushes to `content` keep the schedule enabled is not known; it is on the plan's final checklist. Check the Actions tab now and then.
+
+## Search engines: the reader is `noindex` by default
+
+The reader is a second public copy of posts that already live on Substack (and possibly on your own site), so by default it asks search engines not to index it. Duplicate content is not "penalized" as such, but search engines group copies and pick one to show, and you want the original to win.
+
+- **How.** The build adds `<meta name="robots" content="noindex">` to `index.html` (`noindex` in the configuration, default `true`; `false` leaves the tag out). It is in the static HTML, so it works without JavaScript. The reader's routes use `#/...` fragments, which search engines ignore, so the shell is in effect one page.
+- **What it cannot cover.** GitHub Pages cannot send an `X-Robots-Tag` header, so the JSON files (`index.json`, `search.json`, `posts/*.json`), `sw.js`, the manifest and `images/` cannot carry the request. Search engines rarely index JSON. The images could in principle appear in image search on their own; this is accepted for now. A host that can set headers (Netlify, Cloudflare Pages) would cover everything, at the cost of moving the site.
+- **Do not add a `robots.txt` disallow for it.** A crawler reads `robots.txt` only at the root of the host (`<user>.github.io/robots.txt`), which a project site cannot provide, and a `Disallow` would stop the crawler from ever seeing the `noindex` tag; disallowed URLs can still be listed without content.
+- **An embedding app** that shows the posts should do the same on its own pages.
+- **If the reader is already indexed.** The tag takes effect when the page is next crawled (days to weeks). Check with a `site:` search; in Google Search Console, add the URL prefix as a property, use URL inspection ("noindex detected in 'robots' meta tag") and the Removals tool to hide it sooner.
 
 ## Serving the shell under a path
 
