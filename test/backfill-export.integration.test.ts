@@ -26,13 +26,13 @@ const withImage = `<p>First placeholder post.</p><div class="captioned-image-con
 const HEADER = "post_id,post_date,is_published,email_sent_at,inbox_sent_at,type,audience,title,subtitle,podcast_url";
 const csvRow = (...f: string[]) => [...f, ""].map((v) => (/[",\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v)).join(",");
 const rows = [
-  csvRow("101", "2026-03-02T10:00:00.000Z", "true", "", "", "newsletter", "everyone", "Hello, world", "A placeholder subtitle."),
-  csvRow("102", "2026-03-01T08:30:00.000Z", "true", "", "", "newsletter", "everyone", 'Quoted "title", with\na line break', "Ends ]]> badly"),
+  csvRow("101.first-post", "2026-03-02T10:00:00.000Z", "true", "", "", "newsletter", "everyone", "Hello, world", "A placeholder subtitle."),
+  csvRow("102.second-post", "2026-03-01T08:30:00.000Z", "true", "", "", "newsletter", "everyone", 'Quoted "title", with\na line break', "Ends ]]> badly"),
   csvRow("103", "2026-03-10T09:00:00.000Z", "true", "", "", "newsletter", "everyone", "Already here", ""),
-  csvRow("104", "2026-03-11T09:00:00.000Z", "false", "", "", "newsletter", "everyone", "A draft", ""),
-  csvRow("105", "2026-03-12T09:00:00.000Z", "false", "", "", "adhoc_email", "everyone", "An email-only send", ""),
+  csvRow("104.draft-slug-x", "2026-03-11T09:00:00.000Z", "false", "", "", "newsletter", "everyone", "A draft", ""),
+  csvRow("105.adhoc-slug-x", "2026-03-12T09:00:00.000Z", "false", "", "", "adhoc_email", "everyone", "An email-only send", ""),
   csvRow("106", "2026-03-13T09:00:00.000Z", "true", "", "", "newsletter", "only_paid", "For paying readers", ""),
-  csvRow("107", "2026-03-14T09:00:00.000Z", "false", "", "", "newsletter", "only_paid", "A paid draft", ""),
+  csvRow("107.paid-draft-x", "2026-03-14T09:00:00.000Z", "false", "", "", "newsletter", "only_paid", "A paid draft", ""),
   csvRow("108", "2026-03-15T09:00:00.000Z", "true", "", "", "newsletter", "everyone", "No html file", ""),
   csvRow("109", "2026-03-16T09:00:00.000Z", "true", "", "", "newsletter", "everyone", "Odd name", ""),
 ];

@@ -217,6 +217,15 @@ export interface Selection {
   skipped: Skipped[];
 }
 
+/**
+ * The numeric id of a row. In a real export the `post_id` column holds `<id>.<slug>` (the
+ * stem of the html file name) rather than the bare number; both forms are accepted. Only the
+ * number is ever reported, since the slug of an unpublished post names it.
+ */
+export function idOfRow(postId: string): string {
+  return /^\d+/.exec(postId.trim())?.[0] ?? postId.trim();
+}
+
 /** RFC 822 date in UTC, as the feed writes it, from an ISO date. Null if it is not a date. */
 export function pubDateOf(iso: string): string | null {
   if (iso.trim() === "") return null;
@@ -227,7 +236,7 @@ export function pubDateOf(iso: string): string | null {
 /**
  * Decide, for each row of `posts.csv`, whether to add it: published, for everyone, and a
  * newsletter. Every other row is counted with the first reason that applies.
- * `htmlById` holds the html entries read (post id to slug and body), `unsafeIds` the
+ * `htmlById` holds the html entries read (numeric post id to slug and body), `unsafeIds` the
  * ids whose entry name was refused, `existing` the slugs the backup already holds.
  */
 export function selectRows(
@@ -240,7 +249,7 @@ export function selectRows(
   const skipped: Skipped[] = [];
   const taken = new Set<string>();
   for (const r of rows) {
-    const id = r.post_id;
+    const id = idOfRow(r.post_id);
     if (r.is_published.trim().toLowerCase() !== "true") {
       skipped.push({ id, reason: "unpublished" });
       continue;

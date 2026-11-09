@@ -10,6 +10,7 @@ import {
   MAX_TOTAL_BYTES,
   parseCsv,
   parsePostsCsv,
+  idOfRow,
   pubDateOf,
   selectRows,
   SOURCE_MARKER,
@@ -178,7 +179,21 @@ describe("pubDateOf", () => {
   });
 });
 
+describe("idOfRow", () => {
+  it("takes the number from a bare id or from the <id>.<slug> form of a real export", () => {
+    expect(idOfRow("42")).toBe("42");
+    expect(idOfRow("42.some-slug")).toBe("42");
+    expect(idOfRow(" 42.some-slug ")).toBe("42");
+  });
+});
+
 describe("selectRows", () => {
+  it("matches a row whose post_id is <id>.<slug> and reports only the number", () => {
+    const rows = [row({ post_id: "1.one" }), row({ post_id: "2.draft-slug", is_published: "false" })];
+    const sel = selectRows(rows, new Map([["1", { slug: "one", html: "<p>x</p>" }]]), new Set(), new Set());
+    expect(sel.add.map((c) => [c.id, c.slug])).toEqual([["1", "one"]]);
+    expect(sel.skipped).toEqual([{ id: "2", reason: "unpublished" }]);
+  });
   const html = (id: string, slug: string) => [id, { slug, html: "<p>x</p>" }] as const;
   it("adds eligible rows and counts every skipped row with a reason", () => {
     const rows = [
