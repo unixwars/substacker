@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/substacker-hero.webp" alt="Substacker: your Substack workflow, streamlined" width="720">
+</p>
+
 # substacker
 
 [![CI](https://github.com/unixwars/substacker/actions/workflows/ci.yml/badge.svg)](https://github.com/unixwars/substacker/actions/workflows/ci.yml)
@@ -5,7 +9,7 @@
 
 Back up a Substack publication as static files, and read, search and browse it offline. A job reads the publication's RSS feed and commits each post's raw feed item and its images to a protected `content` branch (by default from a machine you control, see "Publishing"); a static PWA reader and a small embeddable core library are derived from that backup.
 
-**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The publish workflow, its dry run and the local scrape (`npm run scrape:local`) exist too, and the scraper downloads images politely and safely (see [docs/setup.md](docs/setup.md), section 3b). The first release is **0.1.0** (see [Version and releases](#version-and-releases); the Release page exists once its tag is pushed). Not yet done: the live checks listed at the end of the plan; in particular, the feed refuses GitHub-hosted runners (HTTP 403) and the Cloudflare relay (HTTP 429) in the probe, so the scrape runs on a machine you control by default; the real push, dispatch and timer have not been run against a live repository yet. The design and the implementation plan are in [docs/](docs/).
+**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The publish workflow, its dry run and the local scrape (`npm run scrape:local`) exist too, and the scraper downloads images politely and safely (see [docs/setup.md](docs/setup.md), section 3b). The first release is **0.1.0** (see [Version and releases](#version-and-releases); the Release page exists once its tag is pushed). Not yet done: the live checks listed at the end of the plan; in particular, the feed refuses GitHub-hosted runners (HTTP 403) and Cloudflare's network (HTTP 429), so the scrape runs on a machine you control by default; the real push, dispatch and timer have not been run against a live repository yet. The design and the implementation plan are in [docs/](docs/).
 
 ## What it is
 
@@ -24,8 +28,8 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 | `apps/shell` | The static PWA reader with its own service worker. |
 | `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`), the publish steps themselves (`publish.mjs`, used by the workflow and by `publish-dry-run.mjs`) the local scrape (`scrape-local.mjs`) and, for the container, its daily scheduler (`scrape-loop.mjs`) and health check (`healthcheck.mjs`), and the release helpers (`sync-version.mjs`, which writes the version constants from the root `package.json`, and `changelog-section.mjs`, which extracts the notes of a release from `CHANGELOG.md`). |
 | `deploy/` | `Dockerfile` for the container that runs the daily scrape by itself (see [docs/setup.md](docs/setup.md), step 3d). |
-| `assets/` | Source artwork for the icons (`icon.webp`, `icon.svg`); `npm run icons -w substacker-shell` regenerates the PNGs in `apps/shell/public`. |
-| `apps/relay` | A Cloudflare Worker that relays the feed fetch, for the optional `ci` mode (it got HTTP 429 in the probe). Deploy steps are in [docs/setup.md](docs/setup.md). |
+| `docs/assets/` | The artwork: the hero image of this README and the icon sources (`substacker-icon.webp`, `substacker-icon.svg`); `npm run icons -w substacker-shell` regenerates the PNGs in `apps/shell/public`. |
+| `apps/relay` | A feed-fetch relay written as a Cloudflare Worker, for the optional `ci` mode. **Not suitable on Cloudflare:** Substack answers its requests with HTTP 429 (see [docs/setup.md](docs/setup.md), section 3a). Kept as a host-agnostic handler for other hosts. |
 | `CHANGELOG.md`, `docs/releasing.md` | What each version contains, and how a release is cut. |
 | `content` branch | The generated backup. Orphan branch, no force pushes. |
 

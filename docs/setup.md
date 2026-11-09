@@ -1,12 +1,12 @@
 # Setup and forking
 
-Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The probe found that the feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", steps 3c and 3d). The container in 3d has not been built by a container engine yet; see its "Not verified" list.
+Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", steps 3c and 3d). The container in 3d has not been built by a container engine yet; see its "Not verified" list.
 
 Releases and versions (what a tag does, how to install the core tarball, how to label the container image): [releasing.md](releasing.md).
 
 ## Two modes: where the scrape runs
 
-The feed refuses GitHub's runners (the probe got HTTP 403 whatever user agent was sent), and the Cloudflare relay did not help (HTTP 429 through it). So the repository variable `SUBSTACKER_SCRAPE` selects where the scrape happens:
+The feed refuses GitHub's runners (HTTP 403 whatever user agent is sent), and the Cloudflare relay did not help (HTTP 429 through it). So the repository variable `SUBSTACKER_SCRAPE` selects where the scrape happens:
 
 | `SUBSTACKER_SCRAPE` | Who scrapes | What the `publish` workflow does |
 |---|---|---|
@@ -59,9 +59,13 @@ Settings are not stored in the repository, so no publication is named in the cod
 - The workflow deploys through the `github-pages` environment, which by default only accepts deployments from `main`; run it from `main`.
 - In `local` mode, do step 3c first (the workflow refuses to deploy an empty backup and says so), then run the `publish` workflow once by hand. After that it runs daily, on every push to `main` and whenever `scrape:local` dispatches it.
 
-## 3a. The relay (`ci` mode only, and only if it helps on your network)
+## 3a. The relay (`ci` mode only; not suitable on Cloudflare)
 
-Substack answers HTTP 403 to requests from GitHub's runners. The relay, a small Cloudflare Worker (`apps/relay`, free tier), fetches the feed for the scraper in `ci` mode. In the probe it did not help: Substack answered 429 to the Cloudflare network. It is kept for networks where it does work, and is not needed in `local` mode or if the runners reach the feed directly.
+Substack answers HTTP 403 to requests from GitHub's runners. The relay (`apps/relay`) is a small fetch-and-forward handler, written as a Cloudflare Worker, that fetches the feed for the scraper in `ci` mode.
+
+**It is not suitable on Cloudflare.** Deployed as a Worker on the free tier and tested on 2026-11-09, it was answered with HTTP 429 (Too Many Requests) every time: five attempts over about an hour, from GitHub Actions through the Worker, while the same feed returned 200 to direct requests from an Oracle Cloud instance and from a home machine. The Worker itself was verified working (401 without the secret, 403 for another host); it is Substack that refuses the Cloudflare Workers network. Do not deploy it there. The handler takes and returns standard `Request` and `Response` objects, so it can be ported to another host with a thin adapter (another provider's functions may be accepted; it is untested), but the default `local` mode needs no relay at all. If you deployed it, remove it with `npx wrangler delete` from `apps/relay`.
+
+The rest of this section describes the relay for completeness.
 
 **What it does.** It answers `GET <relayUrl>?url=<feed address>` for callers that send the header `x-relay-secret: <secret>`, compared in constant time with the Worker secret `RELAY_SECRET`. It only fetches `https` addresses on the one host in the Worker variable `ALLOWED_HOST`, refuses any redirect to another host, caps the body at 10 MB and passes the status and body through. Errors it generates itself: 401 (secret missing or wrong), 403 (another host, or a redirect to one), 405 (not GET), 400 (no or bad `url`), 502 (upstream failed, too many redirects, body too large), 500 (relay not configured). Those carry an `x-relay-error` header naming the reason, so a caller can tell the relay's own 403 from a 403 passed through from the publication, and a `Retry-After` header from upstream is forwarded so the scraper can honour a rate limit. It identifies itself with `User-Agent: substacker-relay/<version>`; it does not pretend to be a browser.
 
@@ -95,7 +99,7 @@ npx wrangler secret put RELAY_SECRET
 
 When `relayUrl` is set the scraper requires `SUBSTACKER_RELAY_SECRET` and fetches only the feed through the relay; images are fetched directly, since they come from several hosts.
 
-**Probe result:** GitHub-hosted runners get HTTP 403 from the feed whatever user agent they send, and the relay got HTTP 429. That is why `local` is the default mode. Networks change; to try the relay again, set `SUBSTACKER_SCRAPE` to `ci`, deploy the relay and run the `publish` workflow by hand. If the feed fetch still fails, set the variable back to `local`.
+**Test result (2026-11-09):** GitHub-hosted runners get HTTP 403 from the feed whatever user agent they send, and the Cloudflare relay got HTTP 429. That is why `local` is the default mode. Networks change; to try the relay again, set `SUBSTACKER_SCRAPE` to `ci`, deploy the relay and run the `publish` workflow by hand. If the feed fetch still fails, set the variable back to `local`.
 
 ## 3b. How the scraper treats the network and images
 
@@ -400,7 +404,7 @@ Offline reading is handled by a service worker generated at build time (`sw.js`,
 
 ## Icons and the manifest
 
-The icons come from `assets/icon.webp` (full colour) and `assets/icon.svg` (the glyph). `npm run icons -w substacker-shell` regenerates `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (the icon at 80% on its own background colour, inside the maskable safe zone), `apple-touch-icon.png` and the vector `icon.svg` in `apps/shell/public/`. The PNGs are committed, so a build and CI need no image tooling; run the script only if you replace the sources (it uses the `sharp` devDependency of `apps/shell`).
+The icons come from `docs/assets/substacker-icon.webp` (full colour) and `docs/assets/substacker-icon.svg` (the glyph). `npm run icons -w substacker-shell` regenerates `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` (the icon at 80% on its own background colour, inside the maskable safe zone), `apple-touch-icon.png` and the vector `icon.svg` in `apps/shell/public/`. The PNGs are committed, so a build and CI need no image tooling; run the script only if you replace the sources (it uses the `sharp` devDependency of `apps/shell`).
 
 `manifest.webmanifest` is generated by the shell's Vite build: `name` is the `feedName` of the shell's `config.json` and `short_name` is derived from it. The build reads the file named by `SUBSTACKER_SHELL_CONFIG` (the publish workflow sets it); without it, as in `npm run dev`, the name is the neutral default `Reader`.
 
