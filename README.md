@@ -5,7 +5,7 @@
 
 Back up a Substack publication as static files, and read, search and browse it offline. A job reads the publication's RSS feed and commits each post's raw feed item and its images to a protected `content` branch (by default from a machine you control, see "Publishing"); a static PWA reader and a small embeddable core library are derived from that backup.
 
-**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The publish workflow, its dry run and the local scrape (`npm run scrape:local`) exist too, and the scraper downloads images politely and safely (see [docs/setup.md](docs/setup.md), section 3b). Not yet built: the first release, and the live checks listed at the end of the plan; in particular, the feed refuses GitHub-hosted runners (HTTP 403) and the Cloudflare relay (HTTP 429) in the probe, so the scrape runs on a machine you control by default; the real push, dispatch and timer have not been run against a live repository yet. The design and the implementation plan are in [docs/](docs/).
+**Status: under construction.** The core, scraper, build and the shell (including offline reading) exist and are tested. The publish workflow, its dry run and the local scrape (`npm run scrape:local`) exist too, and the scraper downloads images politely and safely (see [docs/setup.md](docs/setup.md), section 3b). The first release is **0.1.0** (see [Version and releases](#version-and-releases); the Release page exists once its tag is pushed). Not yet done: the live checks listed at the end of the plan; in particular, the feed refuses GitHub-hosted runners (HTTP 403) and the Cloudflare relay (HTTP 429) in the probe, so the scrape runs on a machine you control by default; the real push, dispatch and timer have not been run against a live repository yet. The design and the implementation plan are in [docs/](docs/).
 
 ## What it is
 
@@ -22,10 +22,11 @@ Out of scope: comments, likes and restacks (the reader links to the post on Subs
 | `packages/core` | The content contract and the pure logic (`substacker-core`, the only distributed package). |
 | `packages/scraper` | Reads the feed and writes the content files (`substacker-scrape`, `substacker-build`). |
 | `apps/shell` | The static PWA reader with its own service worker. |
-| `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`), the publish steps themselves (`publish.mjs`, used by the workflow and by `publish-dry-run.mjs`) the local scrape (`scrape-local.mjs`) and, for the container, its daily scheduler (`scrape-loop.mjs`) and health check (`healthcheck.mjs`). |
+| `scripts/` | Site assembly shared by the publish workflow, the dry run and the e2e preparation (`site.mjs`), the publish steps themselves (`publish.mjs`, used by the workflow and by `publish-dry-run.mjs`) the local scrape (`scrape-local.mjs`) and, for the container, its daily scheduler (`scrape-loop.mjs`) and health check (`healthcheck.mjs`), and the release helpers (`sync-version.mjs`, which writes the version constants from the root `package.json`, and `changelog-section.mjs`, which extracts the notes of a release from `CHANGELOG.md`). |
 | `deploy/` | `Dockerfile` for the container that runs the daily scrape by itself (see [docs/setup.md](docs/setup.md), step 3d). |
 | `assets/` | Source artwork for the icons (`icon.webp`, `icon.svg`); `npm run icons -w substacker-shell` regenerates the PNGs in `apps/shell/public`. |
 | `apps/relay` | A Cloudflare Worker that relays the feed fetch, for the optional `ci` mode (it got HTTP 429 in the probe). Deploy steps are in [docs/setup.md](docs/setup.md). |
+| `CHANGELOG.md`, `docs/releasing.md` | What each version contains, and how a release is cut. |
 | `content` branch | The generated backup. Orphan branch, no force pushes. |
 
 ## Local build & development
@@ -54,8 +55,8 @@ Settings are never committed: copy [substacker.config.example.json](substacker.c
 
 | Layer | Covers | Command |
 |---|---|---|
-| Unit | Pure logic in `packages/*` (contract, sanitizing, post logic including image type sniffing, search, hooks with a fake `fetch`, feed parsing, derivation, address and SVG safety, the polite fetcher), the shell's manifest and committed icons, and the relay's handler called directly with fake requests and a stub `fetch`. No network, no browser. | `npm run test:unit` |
-| Integration | Whole flows against fixture feeds: scrape then build, idempotence, failure paths, the publish dry run in both modes (files it would commit, none on a second run, files it would deploy), and `scrape:local` against a local bare repository (push, nothing on a second run, a dirty worktree refused, `--init`, the dispatch call, no force; the standalone-clone mode of the container too), plus the container's scheduler (`--once`, a failing run that does not stop the loop, SIGTERM mid-sleep and mid-scrape) and health check. Packing `substacker-core`, installing the tarball in an empty directory and importing every subpath (needs the npm registry). | `npm run test:integration` |
+| Unit | Pure logic in `packages/*` (contract, sanitizing, post logic including image type sniffing, search, hooks with a fake `fetch`, feed parsing, derivation, address and SVG safety, the polite fetcher), the shell's manifest and committed icons, the version checks (every package and generated constant at the root version) and the changelog extraction, and the relay's handler called directly with fake requests and a stub `fetch`. No network, no browser. | `npm run test:unit` |
+| Integration | Whole flows against fixture feeds: scrape then build, idempotence, failure paths, the publish dry run in both modes (files it would commit, none on a second run, files it would deploy), and `scrape:local` against a local bare repository (push, nothing on a second run, a dirty worktree refused, `--init`, the dispatch call, no force; the standalone-clone mode of the container too), plus the container's scheduler (`--once`, a failing run that does not stop the loop, SIGTERM mid-sleep and mid-scrape) and health check. Packing `substacker-core`, installing the tarball in an empty directory and importing every subpath, with `VERSION` equal to the package version, and the built `--version` flags (needs the npm registry). | `npm run test:integration` |
 | Shell end-to-end | Playwright (Chromium) against static sites assembled from the fixture feed: list, post, previous and next, search, empty state, hidden post, dock and Subscribe by configuration, the manifest name and icons, and offline reading (offline reload, also after a first visit with no reload, an unopened post, cap eviction, a second shell on the same origin, a site at the root of its origin, a server error or a failing IndexedDB). Needs `npm run build` first and, once, `npx playwright install chromium`. | `npm run test:e2e` |
 
 Unit tests are `*.test.ts` beside the code; integration tests are `*.integration.test.ts` (plus `test/` at the root); end-to-end specs are in `apps/shell/e2e`. Static gates: `npm run typecheck` (strict `tsc`) and `npm run lint` (ESLint).
@@ -83,7 +84,21 @@ The scrape and the deploy are separate, because the feed refuses GitHub's runner
 
 To see what a run would do without pushing anything, run `npm run build` then `npm run publish:dry-run -- --mode ci` (or `--mode local`): it calls the same functions (`scripts/publish.mjs`) against the fixture feed, served locally, and lists the backup files it would commit (none on a second run with the same `--workdir`, and none in `local` mode) and the files it would deploy. `test:integration` covers it, and covers `scrape:local` against a local bare repository, a fixture feed and a fake GitHub API.
 
-A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which runs the typecheck, lint, unit and integration tests (the integration run includes the pack-and-import check), then packs `substacker-core` and attaches the tarball to a GitHub Release.
+A tag `v*` triggers [`release.yml`](.github/workflows/release.yml), which runs the typecheck, lint, unit and integration tests (the integration run includes the pack-and-import check), then packs `substacker-core` and creates the GitHub Release with the tarball and the matching `CHANGELOG.md` section as its notes. It first checks that the tag is on `main`, equals the package version and has a changelog section. The steps to cut one, and what to do when it goes wrong, are in [docs/releasing.md](docs/releasing.md).
+
+## Version and releases
+
+The current version is **0.1.0**, the first official release. There is one version for the whole repository (the root `package.json`); `substacker-scrape --version`, `substacker-build --version` and the scripts print it, `substacker-core` exports it as `VERSION` (not to be confused with `CONTRACT_VERSION`, the version of the content format), the shell's `index.html` carries it in a `generator` meta tag and the container image in its `org.opencontainers.image.version` label.
+
+**Before 1.0.0, minor versions may break** the content contract, the `substacker-core` API, the configuration and the scripts; patch versions only fix bugs. Read [CHANGELOG.md](CHANGELOG.md) before you upgrade, and pin the exact version.
+
+Install the core library from the Release (nothing is on the npm registry); the lockfile then pins the tarball's integrity hash:
+
+```bash
+npm install https://github.com/unixwars/substacker/releases/download/v0.1.0/substacker-core-0.1.0.tgz
+```
+
+How a release is cut, published and rolled back is in [docs/releasing.md](docs/releasing.md).
 
 ## Using it for your own publication
 

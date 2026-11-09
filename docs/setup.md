@@ -2,6 +2,8 @@
 
 Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The probe found that the feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", steps 3c and 3d). The container in 3d has not been built by a container engine yet; see its "Not verified" list.
 
+Releases and versions (what a tag does, how to install the core tarball, how to label the container image): [releasing.md](releasing.md).
+
 ## Two modes: where the scrape runs
 
 The feed refuses GitHub's runners (the probe got HTTP 403 whatever user agent was sent), and the Cloudflare relay did not help (HTTP 429 through it). So the repository variable `SUBSTACKER_SCRAPE` selects where the scrape happens:
