@@ -349,6 +349,40 @@ Check it: `git push --force origin <anything>:content` must be rejected.
 
 The same ruleset logic applies to `main` if you like (require the `CI` workflow to pass), but the project does not depend on it.
 
+## Backfilling from a Substack export
+
+A feed lists only the newest posts (about 20). To bring older posts into the backup once, use a Substack data export. `npm run backfill` (`scripts/backfill-export.mjs`) turns each eligible post of the export into a `raw/<slug>.xml` item, and the normal pipeline takes it from there. It is a one-off tool; it needs no network.
+
+**Get the export.** In Substack: Settings, Exports, start a new export, then download the zip when the mail arrives. Keep it **outside the repository** (`.gitignore` lists `/tmp/` and `substack_export*.zip` as a safety net, not as a place to keep it).
+
+**The export holds personal data, and the tool never reads it.** Besides the posts it contains the subscriber list (`email_list.*.csv`) and, for every post, the addresses that were sent it or opened it (`posts/<id>.delivers.csv`, `posts/<id>.opens.csv`). The tool opens exactly two kinds of entry: `posts.csv` and `posts/<id>.<slug>.html`. Every other entry is refused before it is decompressed; it is never read, copied or logged. Names taken from the export are never used as file names on disk (the slug is checked with the same rules as the scraper's: not empty, not `.` or `..`, no separator, no NUL), an entry above 20 MB or a total above 200 MB is refused, and odd or path-like names are ignored. The program prints post ids and slugs only; it does not print titles, and for an unpublished post it prints the id alone. Because the zip contains subscriber addresses, **delete it when you are done**.
+
+**What is imported.** A row of `posts.csv` is imported only if it is published, its audience is `everyone` and its type is `newsletter`, and its html file exists with a safe slug. **Paid and unpublished posts are never imported**: drafts, email-only sends (`adhoc_email`) and anything for paid or founding subscribers are skipped and counted. A post whose slug is already in `raw/` is skipped too (**the real feed's items win**), and nothing is ever overwritten or deleted.
+
+**Run it** against a clone of `content` (the container keeps one at `/data/content`; on a laptop, a clone made with `scripts/scrape-local.mjs --content-dir <path>` works, or any `git clone --branch content --single-branch <your-fork-url> <path>`). Build first, then a dry run, which prints the plan and writes nothing:
+
+```bash
+npm run build
+npm run backfill -- --export ~/Downloads/substack_export_<date>_<id>.zip --backup <path-to-content-clone>
+```
+
+It prints the number of posts read, the posts to add, the skipped rows by reason (`unpublished`, `not-everyone`, `not-newsletter`, `no-html`, `unsafe-slug`, `bad-date`, `invalid-item`, `already-present`) and a table of image hosts. Check the numbers, then run the same command with `--write`. It creates `raw/` if needed, writes one file per post, and exits non-zero for a malformed export, an unreadable required entry or a refused write. A second `--write` writes nothing. The links in the items use the origin of the configured `feedUrl` (`SUBSTACKER_CONFIG` or `substacker.config.local.json`); give `--origin https://<publication>` to use another (https only). `--hosts-json <path>` also saves the host counts (it writes that file in a dry run too).
+
+**Publish the result** with plain git; one tested-in-principle path is:
+
+```bash
+cd <path-to-content-clone>
+git status --short            # only new raw/*.xml files
+git add raw && git commit -m "backfill: older posts from the Substack export"
+git push origin content       # a plain push; never force
+```
+
+The next daily run of the scraper (the container, or `npm run scrape:local`) finds the stored items, **downloads the images they are missing**, commits them, and asks for a deploy; the site then shows the older posts. Until an image is downloaded the post still reads, with the image at its original address, and counts as `unlocalized`. The scrape fetches politely (see 3b), so the first run after a large backfill takes a while; images that fail are retried on the next run. To preview the result before you push, run `node packages/scraper/dist/bin/build.js --backup <path> --out <dir>`.
+
+**The image-host report.** It counts every image address in the bodies to add: the `src` of each `<img>`, every candidate of a `srcset` and `<picture>` source, and the original address inside a `substackcdn.com/image/fetch/` address, counted for its own host as well as the CDN's. It over-counts what is downloaded (the scraper fetches one address per picture), but it names every host the old posts depend on. The scraper does not restrict hosts today; the table is the list to start from when you decide on an allowlist later.
+
+**These items are synthesized, not received.** The export carries the post body and a few fields, not the feed item. The tool builds an item shaped like the feed's (title, link `<origin>/p/<slug>`, guid `post:<id>`, `pubDate` in UTC, subtitle as description, the body in `content:encoded`) and adds `<substacker:source>export</substacker:source>`. The marker is ignored by the feed parser and the build, and it is how you recognize such a file. Items are not byte-for-byte what Substack served: there is no author element, and the cover is the body's first image (an `<enclosure>` is written for it, mirroring the build's own fallback, since the export has no cover field). The body is the export's html, unchanged. The text written is exactly what the scraper's own parser returns for the item.
+
 ## Local development
 
 Prerequisites: Node.js 26 or newer (the current LTS; 22 reaches end of life in 2027) and npm. There is no Docker and no database.

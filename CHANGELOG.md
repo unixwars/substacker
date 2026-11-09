@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Backfill from a Substack data export** (`npm run backfill`, `scripts/backfill-export.mjs`): a one-off tool that writes the older posts of an export (a zip) as `raw/<slug>.xml` items into a backup, so the daily scrape downloads their images and the build derives them unchanged. Dry run by default; `--write` never overwrites or deletes. It reads only `posts.csv` and `posts/<id>.<slug>.html`, refuses every other entry (subscriber lists, per-recipient data) before decompressing it, and imports only published, public newsletter posts. The items are synthesized (marked `<substacker:source>export</substacker:source>`), not received from the feed. It also reports the image hosts the old posts use. New dev dependency: `fflate`. See [docs/setup.md](docs/setup.md#backfilling-from-a-substack-export).
+
 ### Changed
 
 - The relay is documented as not suitable on Cloudflare: Substack answers the Cloudflare Workers network with HTTP 429. The code stays as a host-agnostic handler.

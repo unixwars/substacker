@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FeedError, feedTitle, hashRaw, parseFeed, parseFeedDetailed, parseItem, slugFromLink } from "./feed.js";
+import { FeedError, feedTitle, hashRaw, isSafeSlug, parseFeed, parseFeedDetailed, parseItem, slugFromLink } from "./feed.js";
 import { feedXml, fixtureFeed } from "./test-support/feeds.js";
 
 describe("parseFeed", () => {
@@ -101,5 +101,16 @@ describe("hashRaw and feedTitle", () => {
   it("reads the channel title, not an item's", () => {
     expect(feedTitle(fixtureFeed)).toBe("Example Newsletter");
     expect(feedTitle(feedXml([], "Other"))).toBe("Other");
+  });
+});
+
+describe("isSafeSlug", () => {
+  it("accepts ordinary and non-ASCII slugs", () => {
+    expect(isSafeSlug("hello-world")).toBe(true);
+    expect(isSafeSlug("café")).toBe(true);
+    expect(isSafeSlug("a.b")).toBe(true);
+  });
+  it("refuses empty, dot names, separators and NUL", () => {
+    for (const s of ["", ".", "..", "a/b", "a\\b", "a\0b"]) expect(isSafeSlug(s), s).toBe(false);
   });
 });
