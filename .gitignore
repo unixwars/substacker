@@ -40,3 +40,7 @@ substacker.config.local.json
 
 # Shell end-to-end scratch site
 .e2e/
+
+# Scratch space, and a Substack data export (it holds subscriber addresses): never commit either
+/tmp/
+substack_export*.zip
