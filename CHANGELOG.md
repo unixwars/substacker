@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The relay is documented as not suitable on Cloudflare: Substack answers the Cloudflare Workers network with HTTP 429. The code stays as a host-agnostic handler.
+- The README has the project artwork; the artwork and the icon sources live in `docs/assets/`.
+
+### Removed
+
+- The temporary reachability probe (`probes/`, `probe.yml`).
+
 ## [0.1.0] - 2026-11-09
 
 The first official release. One version number, `0.1.0`, covers the whole repository.

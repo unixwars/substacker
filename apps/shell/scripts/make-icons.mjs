@@ -1,10 +1,10 @@
-// One-off: derives the PWA icons from the sources in /assets and writes them to
+// One-off: derives the PWA icons from the sources in docs/assets and writes them to
 // apps/shell/public/. The results are committed, so a build and CI need no image
 // tooling; run this only when the sources change:
 //
 //   npm run icons -w substacker-shell
 //
-// Sources: assets/icon.webp (the full-colour icon, square) and assets/icon.svg
+// Sources: docs/assets/substacker-icon.webp (the full-colour icon, square) and docs/assets/substacker-icon.svg
 // (the glyph alone, copied as the vector favicon). Needs the `sharp` devDependency.
 import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,12 +12,12 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const shellDir = join(dirname(fileURLToPath(import.meta.url)), "..");
-const assets = join(shellDir, "..", "..", "assets");
+const assets = join(shellDir, "..", "..", "docs", "assets");
 const publicDir = join(shellDir, "public");
-const source = join(assets, "icon.webp");
+const source = join(assets, "substacker-icon.webp");
 
 const meta = await sharp(source).metadata();
-if (meta.width !== meta.height) throw new Error(`icon.webp must be square, got ${meta.width}x${meta.height}`);
+if (meta.width !== meta.height) throw new Error(`substacker-icon.webp must be square, got ${meta.width}x${meta.height}`);
 
 // The icon's own background, averaged over small patches in the four corners. The
 // maskable variant is painted with it so the extra margin matches the artwork.
@@ -60,5 +60,5 @@ await sharp({ create: { width: 512, height: 512, channels: 3, background: backgr
   .png({ compressionLevel: 9 })
   .toFile(join(publicDir, "icon-maskable-512.png"));
 
-copyFileSync(join(assets, "icon.svg"), join(publicDir, "icon.svg"));
+copyFileSync(join(assets, "substacker-icon.svg"), join(publicDir, "icon.svg"));
 console.log(`icons written to ${publicDir}; icon background ${background.hex}`);
