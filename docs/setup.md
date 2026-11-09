@@ -1,6 +1,6 @@
 # Setup and forking
 
-Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The probe found that the feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", step 3c).
+Status: the commands and file names below exist; the live steps (Pages, the ruleset, a real push and dispatch, a timer, a scheduled run) have not been run against a real repository yet. The probe found that the feed refuses GitHub-hosted runners, so by default the scrape runs on a machine you control (section "Two modes", steps 3c and 3d). The container in 3d has not been built by a container engine yet; see its "Not verified" list.
 
 ## Two modes: where the scrape runs
 
@@ -8,7 +8,7 @@ The feed refuses GitHub's runners (the probe got HTTP 403 whatever user agent wa
 
 | `SUBSTACKER_SCRAPE` | Who scrapes | What the `publish` workflow does |
 |---|---|---|
-| `local` (the default, also when the variable is unset) | A machine you control runs `npm run scrape:local` (your laptop, or a small server with a timer) and pushes the backup to the `content` branch. | Skips the scrape and the backup commit, checks that `content` holds posts, builds the shell and the served files from it and deploys. |
+| `local` (the default, also when the variable is unset) | A machine you control runs `npm run scrape:local` (your laptop, or a small server with a timer), or a long-running container does it daily (step 3d), and pushes the backup to the `content` branch. | Skips the scrape and the backup commit, checks that `content` holds posts, builds the shell and the served files from it and deploys. |
 | `ci` | The workflow, through the feed directly or through the relay (`relayUrl`, step 3a). | Scrapes, commits the backup, builds and deploys. Use it only if a network of yours reaches the feed from Actions. |
 
 The relay and the scrape-in-CI path stay in the repository and keep working; they are simply not the default. The mode logic is in `scripts/publish.mjs` (the workflow only passes the variable), and `npm run publish:dry-run -- --mode local` or `--mode ci` shows each.
@@ -113,7 +113,7 @@ When `relayUrl` is set the scraper requires `SUBSTACKER_RELAY_SECRET` and fetche
 4. After pushing a new commit, asks GitHub to run the `publish` workflow, if a token is set. A failure here is a warning, never an error.
 5. Prints one summary line. Exit codes: 0 done (including nothing new), 1 failure, 2 usage error or another run in progress. A lock in the repository's `.git` directory stops two runs from overlapping; a lock left by a dead process or older than six hours is taken over.
 
-Options: `--init` (create the empty orphan `content` branch on origin, once), `--dry-run` (scrape and commit in `./content`, push nothing, dispatch nothing; a later real run pushes that commit), `--no-dispatch`.
+Options: `--init` (create the empty orphan `content` branch on origin, once), `--dry-run` (scrape and commit in `./content`, push nothing, dispatch nothing; a later real run pushes that commit), `--no-dispatch`, and `--content-dir <path>` (keep `content` as a standalone single-branch clone at `<path>` instead of a worktree, with the remote from `SUBSTACKER_CONTENT_REMOTE` or `--remote <url>` and the identity from `SUBSTACKER_GIT_NAME`/`SUBSTACKER_GIT_EMAIL` when the clone has none; `--init` then creates the branch on the remote if it is missing). This is the mode the container (3d) uses; the lock is then in `<path>/.git`.
 
 **First time**, on the machine that will scrape:
 
@@ -192,60 +192,116 @@ systemctl --user start substacker-scrape.service     # run it now
 
 ## 3d. In a container, with podman
 
-For a host where you do not want to install Node or run services directly (a small cloud instance that runs other containers, say), run the same `scrape:local` in a throwaway container. There is no image to build and no registry: the official `node` image (the full one, not `-slim`, because it includes `git`) has an arm64 variant, so it runs natively on Ampere. The checkout lives on the host and is mounted at `/app`; [`deploy/podman/substacker-scrape`](../deploy/podman/substacker-scrape) is the whole wrapper. The only things on the host are that script and a cron (or timer) entry.
+For a host where you do not want to install Node or manage timers (a small cloud instance that already runs other containers, say), the repository builds an image that does the whole job by itself: it sleeps until a time of day, scrapes, pushes the backup to `content` and asks for the deploy, every day. The host's only job is to keep the container alive (`podman run -d --restart=always`). The container makes outbound connections only (the feed, the images, github.com, api.github.com); it listens on no port.
 
-Run the checkout **only through the container**: git records the worktree of `content` with absolute paths (`/app/...`), so using it from the host later would confuse git.
+What is where:
 
-The commands below are for rootless podman as your normal user. They assume nothing about your Terraform or other containers. Replace the clone URL with your fork's.
+| | Where | Notes |
+|---|---|---|
+| Code | the image ([`deploy/Dockerfile`](../deploy/Dockerfile)) | Two stages: `node:26` builds `substacker-core` and `substacker-scraper`; `node:26-slim` (with `git` and `ca-certificates`) gets their `dist`, their production dependencies and four scripts (`scrape-loop.mjs`, `scrape-local.mjs`, `healthcheck.mjs`, `site.mjs`). Both base images have an arm64 variant, so it runs natively on Ampere. It runs as uid 10001. |
+| Configuration and token | podman secrets, given to the container as environment variables | **Never in the image.** The image contains no configuration, no token, no `.git`, no tests and no dev dependencies. |
+| State | the volume `substacker-data`, mounted at `/data` | `/data/content` is a standalone single-branch clone of `content`; `/data/last-success` is the time of the last good run. Losing it costs nothing: the next run clones again. |
 
-```bash
-# 1. Code. The container does the clone and the install, so the host needs no git or node.
-mkdir -p ~/substacker
-podman run --rm -v ~/substacker:/app:Z -w / docker.io/library/node:26 \
-  git clone --branch main https://github.com/<you>/<your-fork>.git /app
+Inside the container, `scripts/scrape-loop.mjs` is the entry point. It runs `scripts/scrape-local.mjs --content-dir /data/content` (the `--content-dir` mode of 3c: a standalone clone instead of a worktree, so the code directory needs no `.git`) once a day, at `SUBSTACKER_SCHEDULE_UTC` (default `04:17`) plus a random delay of up to `SUBSTACKER_JITTER_MINUTES` (default 20, at most 120). A failed run is retried after 5, 15 and 45 minutes, then left until the next day; **the loop never exits because a run failed**, so a restart policy cannot hide an outage; the health check shows it. A clean `SIGTERM`/`SIGINT` stops a running scrape and exits within seconds.
 
-# 2. Install and build only what the scraper needs (--include-workspace-root brings the root's TypeScript, which -w alone leaves out).
-podman run --rm -v ~/substacker:/app:Z -w /app docker.io/library/node:26 \
-  sh -c 'npm ci -w substacker-core -w substacker-scraper --include-workspace-root && npm run build -w substacker-core -w substacker-scraper'
+| Variable | Needed | Meaning |
+|---|---|---|
+| `SUBSTACKER_CONFIG` | yes | The configuration JSON (step 2), from a secret. |
+| `SUBSTACKER_DISPATCH_TOKEN` | yes, for pushing | One token for both the HTTPS push (through a git credential helper baked into the image as environment, which reads this variable) and the deploy dispatch. See "The dispatch token" in 3c; it needs **Contents** and **Actions**, read and write. From a secret. |
+| `SUBSTACKER_CONTENT_REMOTE` | yes | The https address of your repository, e.g. `https://github.com/<you>/<your-fork>.git`. The repository for the dispatch is taken from it. Plain `http` is refused. |
+| `SUBSTACKER_GIT_NAME`, `SUBSTACKER_GIT_EMAIL` | yes, unless the clone already has an identity | The author of the `backup:` commits; stored in the clone the first time. |
+| `SUBSTACKER_SCHEDULE_UTC`, `SUBSTACKER_JITTER_MINUTES` | no | When to run, as above. |
+| `SUBSTACKER_RUN_ON_START=1` | no | Also scrape once when the container starts (default off). |
 
-# 3. Configuration (gitignored) and the git identity for the backup commits (stored in the checkout's .git/config).
-cp ~/substacker/substacker.config.example.json ~/substacker/substacker.config.local.json
-chmod 600 ~/substacker/substacker.config.local.json && ${EDITOR:-vi} ~/substacker/substacker.config.local.json
-podman run --rm -v ~/substacker:/app:Z -w /app docker.io/library/node:26 \
-  sh -c 'git config user.name "Your Name" && git config user.email "you@example.com"'
+The commands are for rootless podman 5 as your normal user. Replace `<you>/<your-fork>` with your repository.
 
-# 4. The token: one secret for both the push and the deploy dispatch. See "The dispatch token" in 3c;
-#    this one needs Contents: read and write as well as Actions: read and write, because it is also the push credential.
-mkdir -p ~/.config/substacker && umask 077
-read -rs -p "Token: " t && printf 'SUBSTACKER_DISPATCH_TOKEN=%s\n' "$t" > ~/.config/substacker/env; unset t
-
-# 5. The wrapper.
-mkdir -p ~/bin && cp ~/substacker/deploy/podman/substacker-scrape ~/bin/ && chmod +x ~/bin/substacker-scrape
-```
-
-**First run.** `--dry-run` scrapes and commits locally and pushes nothing; the second command creates `origin/content` if it is missing and pushes the backup (do the `content` ruleset of step 4 first if you want it protected from the start):
+**1. Build the image**, straight from the repository, with no clone on the host:
 
 ```bash
-~/bin/substacker-scrape --dry-run
-~/bin/substacker-scrape --init --no-dispatch
+podman build -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main
 ```
 
-**Schedule**, one line in `crontab -e`:
+A ref other than `main` works the same way, which is how to try a branch that is not merged yet (`...git#feat/probe`). For a private fork, clone it first and build with `podman build -f deploy/Dockerfile -t substacker .` from the clone. The image is named `localhost/substacker`; there is no registry.
 
-```cron
-17 4 * * * $HOME/bin/substacker-scrape >> $HOME/.cache/substacker.log 2>&1
+**2. Create the secrets**, without anything entering the shell history. The configuration goes through a file only you can read (edit it from the template `substacker.config.example.json`), the token through a silent prompt:
+
+```bash
+umask 077
+cp substacker.config.example.json ~/substacker-config.json     # or write it from scratch
+${EDITOR:-vi} ~/substacker-config.json                          # feedUrl, feedName, ...
+podman secret create substacker_config ~/substacker-config.json
+rm ~/substacker-config.json
+
+read -rs -p "Token: " t; echo; printf %s "$t" | podman secret create substacker_token -; unset t
 ```
 
-**Why the token must be tightly scoped.** It can write to the repository, and `main` holds the workflows. Limit it to this repository, give it an expiry, and add a ruleset on `main` and `dev` that requires a pull request with no bypass for you, so the token can write `content` and nothing else.
+`podman secret ls` lists them. Podman's default secret store keeps them unencrypted in your home directory, readable only by you: the protection is the file permissions, which is why the token must be scoped tightly (below).
 
-**Notes.**
+**3. The one-off first run.** It creates the volume, clones (creating the `content` branch if the repository has none), scrapes, pushes, and writes `last-success`. `--no-dispatch` leaves the deploy to the daily schedule or to your first manual run of the workflow; drop it, or use `--dry-run` instead of `--init --no-dispatch`, to look first (`--dry-run` scrapes and commits in the volume, pushes nothing).
 
-- `:Z` relabels `~/substacker` for SELinux (Oracle Linux enforces it); keep that directory dedicated to this.
-- To update: pull the code with `podman run ... git pull` and repeat the install and build step. `podman pull docker.io/library/node:26` refreshes the base image; roughly monthly is fine. The floating tag is acceptable for a personal job; pin a digest if you want strictness.
-- Anonymous pulls from Docker Hub can hit a rate limit; `podman login docker.io`, or set `SUBSTACKER_IMAGE` to a mirror, fixes that.
-- `SUBSTACKER_DIR`, `SUBSTACKER_ENV_FILE`, `SUBSTACKER_IMAGE` and `SUBSTACKER_ENGINE` (`docker` works too) override the wrapper's defaults.
-- The wrapper has been checked for syntax and for the arguments it passes to the engine; a real podman run is yours to confirm.
-- If you later manage the host with Terraform, this converts to a Quadlet unit with the same image, mounts and environment.
+```bash
+podman run --rm -v substacker-data:/data \
+  --secret substacker_config,type=env,target=SUBSTACKER_CONFIG \
+  --secret substacker_token,type=env,target=SUBSTACKER_DISPATCH_TOKEN \
+  -e SUBSTACKER_CONTENT_REMOTE=https://github.com/<you>/<your-fork>.git \
+  -e SUBSTACKER_GIT_NAME="Your Name" -e SUBSTACKER_GIT_EMAIL=you@example.com \
+  substacker --once --init --no-dispatch
+```
+
+Do the one-time reset (step 1) and the `content` ruleset (step 4) before this, and read the output: it ends with a `scrape:local: pushed ...` line, or `nothing new`. The exit code is the script's (0 done, 1 failure, 2 usage or another run in progress).
+
+**4. The long-running container**, same volume, secrets and variables:
+
+```bash
+podman run -d --name substacker --restart=always \
+  --read-only --tmpfs /tmp --cap-drop=all --security-opt no-new-privileges \
+  -v substacker-data:/data \
+  --secret substacker_config,type=env,target=SUBSTACKER_CONFIG \
+  --secret substacker_token,type=env,target=SUBSTACKER_DISPATCH_TOKEN \
+  -e SUBSTACKER_CONTENT_REMOTE=https://github.com/<you>/<your-fork>.git \
+  -e SUBSTACKER_GIT_NAME="Your Name" -e SUBSTACKER_GIT_EMAIL=you@example.com \
+  --health-cmd 'node scripts/healthcheck.mjs' --health-interval 6h --health-start-period 1m --health-retries 1 \
+  substacker
+```
+
+Required: `-d --name --restart=always`, the volume, the two secrets and the remote. Optional hardening: `--read-only` (the container writes only to `/data` and `/tmp`; podman also mounts `/tmp`, `/run` and `/dev` as tmpfs under `--read-only`, so `--tmpfs /tmp` only makes it explicit), `--cap-drop=all` (nothing here needs a capability) and `--security-opt no-new-privileges`. No `-v` with `:Z` or `:U` is needed: a named volume is labelled for SELinux by podman and takes the image's ownership of `/data` (uid 10001). If you prefer a bind mount instead, create the directory and use `-v /path:/data:Z,U`. The `--health-*` flags repeat the image's `HEALTHCHECK` on purpose: images that podman builds in its default OCI format drop `HEALTHCHECK` (it needs `--format docker`), so the flags on `podman run` are what count. Add `-e SUBSTACKER_RUN_ON_START=1` to also scrape when the container starts.
+
+**How to see it working.**
+
+```bash
+podman logs -f substacker             # one timestamped line per event: next scrape at ..., scrape finished
+podman ps --filter name=substacker    # STATUS shows (healthy) or (unhealthy)
+podman healthcheck run substacker     # exit code 0 = healthy, 1 = unhealthy
+podman exec substacker cat /data/last-success
+git log origin/content -3             # from any clone: the backup: commit
+```
+
+The Actions tab shows a `publish` run started by `workflow_dispatch` after each new commit. Healthy means a successful run (including "nothing new") in the last 36 hours, or a container younger than that that has not had its first run; otherwise `unhealthy: last successful scrape N h ago`. A failing run is retried three times and logged; look at `podman logs` for the reason (an expired token shows as an authentication failure or HTTP 401).
+
+**Surviving a reboot.** A container with `--restart=always` is restarted at boot only if the user's podman runs then:
+
+```bash
+loginctl enable-linger $USER
+systemctl --user enable --now podman-restart.service
+```
+
+If you later manage the host with Terraform, replace this with a Quadlet unit (`~/.config/containers/systemd/substacker.container`) that names the same image, secrets, volume and variables; nothing in the image changes.
+
+**Updating.** Rebuild from the URL, then recreate the container with the same flags (the volume keeps the clone, so nothing is cloned again):
+
+```bash
+podman build --pull=newer -f deploy/Dockerfile -t substacker https://github.com/<you>/<your-fork>.git#main
+podman stop substacker && podman rm substacker
+# ...then the `podman run -d ...` command from step 4 again
+```
+
+A secret is read when the container is created, so to rotate the token: `podman secret rm substacker_token`, create it again (step 2), and recreate the container. Rebuild with `--pull=newer` roughly monthly to pick up the base images' security updates; the floating `node:26` tags are acceptable for a personal job (pin a digest for strictness). Anonymous pulls from Docker Hub can hit a rate limit; `podman login docker.io` fixes it.
+
+**Why the token must be tightly scoped.** It can write to the repository, and `main` holds the workflows. Limit it to this repository, give it an expiry, and add a ruleset on `main` and `dev` that requires a pull request with no bypass for you, so the token can write `content` and nothing else. Anyone who can run commands as your user on the host can read the secret store.
+
+**What the image does not contain:** no configuration, no token, no `.git`, no tests, no dev dependencies, no workflow files. The build context is a whitelist (`.dockerignore`), so a stray `substacker.config.local.json` cannot enter it, and CI checks these properties on every change (the `container` job).
+
+**Not verified.** None of this has run on a real host yet. Specifically: the image has not been built or started by a container engine by the author (none was available); the Dockerfile's steps were reproduced with plain `npm` and `git` on a Node 26 machine, and the scheduler, the health check and the `--content-dir` mode are covered by tests against a local bare repository and a local feed, but not inside a container. CI builds `linux/amd64` only; arm64 (Oracle Ampere) is built by you, with the same Dockerfile. The podman flags above follow podman's documentation for version 5 and have not been tried under SELinux; building from a git URL, the secret-as-environment flags, `podman healthcheck run` and the `podman-restart.service` unit are the first things to confirm. A live push and dispatch from the container, a reboot, and an expired-token day are untested.
 
 ## 4. Protect the `content` branch
 
