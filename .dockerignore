@@ -1,0 +1,20 @@
+# The build context is the repository root. Everything is excluded unless listed, so a
+# local config, a token, .git, node_modules and build output can never enter the image.
+*
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!packages/core/package.json
+!packages/core/tsconfig.build.json
+!packages/core/src
+!packages/scraper/package.json
+!packages/scraper/tsconfig.build.json
+!packages/scraper/src
+!scripts/scrape-local.mjs
+!scripts/scrape-loop.mjs
+!scripts/healthcheck.mjs
+!scripts/site.mjs
+**/node_modules
+**/dist
+**/.env*
+**/substacker.config.local.json
