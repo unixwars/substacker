@@ -20,6 +20,11 @@ describe("version", () => {
     expect(json(`${dir}/package.json`).version).toBe(rootVersion);
   });
 
+  it.each(["packages/scraper", "apps/shell"])("%s depends on exactly ^<version> of substacker-core (run node scripts/sync-version.mjs)", (dir) => {
+    const pkg = JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+    expect(pkg.dependencies["substacker-core"]).toBe(`^${rootVersion}`);
+  });
+
   it("is exported by core and is not the content contract version", () => {
     expect(VERSION).toBe(json("packages/core/package.json").version);
     expect(typeof CONTRACT_VERSION).toBe("number");

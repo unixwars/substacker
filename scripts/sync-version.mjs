@@ -1,7 +1,11 @@
 // Writes the version constants from the root package.json, the single source of truth:
 //
-//   node scripts/sync-version.mjs          write packages/{core,scraper}/src/version.ts and apps/relay/src/version.ts
+//   node scripts/sync-version.mjs          write packages/{core,scraper}/src/version.ts and apps/relay/src/version.ts,
+//                                          and the "substacker-core": "^<version>" ranges in the scraper and shell package.json
 //   node scripts/sync-version.mjs --check  exit 1 if one of them is out of date (writes nothing)
+//
+// Run it after `npm version ... --no-git-tag-version`, then `npm install --package-lock-only`
+// (docs/releasing.md).
 //
 // Those files are committed so that tsc, Vite, the Cloudflare bundler and the published
 // tarball all see a plain TypeScript constant with no file system access. A unit test
@@ -13,6 +17,9 @@ import { fileURLToPath } from "node:url";
 export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const targets = ["packages/core/src/version.ts", "packages/scraper/src/version.ts", "apps/relay/src/version.ts"];
 
+export const dependents = ["packages/scraper/package.json", "apps/shell/package.json"];
+const RANGE = /("substacker-core":\s*")[^"]*(")/;
+
 export const rootVersion = () => JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 
 export const render = (version) =>
@@ -21,6 +28,14 @@ export const render = (version) =>
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const version = rootVersion();
   const stale = [];
+  for (const target of dependents) {
+    const file = join(root, target);
+    const current = readFileSync(file, "utf8");
+    const next = current.replace(RANGE, `$1^${version}$2`);
+    if (next === current) continue;
+    stale.push(target);
+    if (!process.argv.includes("--check")) writeFileSync(file, next);
+  }
   for (const target of targets) {
     const file = join(root, target);
     let current;
